@@ -32,7 +32,7 @@
   }
   .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
 
-  #map{position:absolute; inset:0; z-index:0; background:#0c0f16;}
+  #map{position:absolute; inset:0; z-index:0; background:#0c0f16; transform-origin:50% 50%; transition:transform .4s ease-out;}
   .leaflet-control-zoom{display:none;}
   .leaflet-bar,.leaflet-control-attribution{font-size:10px;}
 
@@ -258,27 +258,27 @@
   body.light .suggest, body.light #navBottom{ box-shadow:0 6px 20px rgba(30,45,80,.14); }
   body.light #toast{ background:#ffffffee; color:#1a2233; }
 
-  /* Bouton et conteneur Trafic Google */
+  /* Bouton Trafic TomTom + panneau de clé */
   #trafficBtn.on{ background:var(--blue); border-color:var(--blue); color:#fff; }
-  #gmap{ position:absolute; inset:0; z-index:400; display:none; }
-  body.gtraffic #gmap{ display:block; }
-  #gmapClose{
-    position:absolute; z-index:620; right:12px;
-    top:calc(120px + var(--safe-t)); display:none;
-    background:var(--panel); border:1px solid var(--line); color:var(--ink);
-    border-radius:12px; padding:11px 15px; font-size:14px; font-weight:600;
-    box-shadow:0 6px 18px rgba(0,0,0,.4);
-  }
-  body.gtraffic #gmapClose{ display:block; }
   #keyPanel{
     position:absolute; z-index:900; left:16px; right:16px;
-    top:calc(50% - 130px); background:var(--panel); border:1px solid var(--line);
+    top:calc(50% - 150px); background:var(--panel); border:1px solid var(--line);
     border-radius:18px; padding:18px; display:none; box-shadow:0 20px 50px rgba(0,0,0,.6);
   }
   #keyPanel.show{ display:block; }
   #keyPanel h3{ margin:0 0 8px; font-size:16px; }
   #keyPanel p{ font-size:12px; color:var(--muted); line-height:1.5; margin:8px 0; }
   #keyPanel a{ color:var(--blue); }
+  /* Légende trafic */
+  #trafficLegend{
+    position:absolute; z-index:590; left:10px;
+    bottom:calc(var(--sheet-collapsed) + 18px + var(--safe-b));
+    background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:8px 12px; display:none; font-size:12px; box-shadow:0 6px 18px rgba(0,0,0,.4);
+  }
+  #trafficLegend.show{ display:block; }
+  #trafficLegend .row{ display:flex; align-items:center; gap:7px; margin:3px 0; }
+  #trafficLegend .sw{ width:16px; height:6px; border-radius:3px; }
 
   /* Bouton recentrage (mode navigation) */
   #recenter{
@@ -312,14 +312,18 @@
 <body>
 
 <div id="map"></div>
-<div id="gmap"></div>
-<button id="gmapClose">✕ Fermer le trafic</button>
+
+<div id="trafficLegend">
+  <div class="row"><span class="sw" style="background:#22c55e"></span>Fluide</div>
+  <div class="row"><span class="sw" style="background:#f59e0b"></span>Dense</div>
+  <div class="row"><span class="sw" style="background:#ef4444"></span>Ralenti / bouchon</div>
+</div>
 
 <div id="keyPanel">
-  <h3>🚦 Trafic Google en direct</h3>
-  <p>Le trafic en temps réel de Google nécessite <b>votre propre clé d'API Google Maps Platform</b>, avec la facturation activée sur votre compte Google. Google offre un crédit mensuel gratuit qui couvre largement un usage personnel.</p>
-  <p>Créez une clé sur <a href="https://console.cloud.google.com/google/maps-apis" target="_blank" rel="noopener">console.cloud.google.com</a> (activez « Maps JavaScript API »).</p>
-  <input class="inp" id="keyInput" type="text" placeholder="Collez votre clé d'API ici" autocomplete="off">
+  <h3>🚦 Trafic TomTom en direct</h3>
+  <p>Le trafic en temps réel utilise <b>votre propre clé d'API TomTom</b>. C'est gratuit pour un usage personnel : palier quotidien offert, <b>sans carte bancaire</b>.</p>
+  <p>Créez une clé sur <a href="https://developer.tomtom.com/" target="_blank" rel="noopener">developer.tomtom.com</a> (inscription gratuite → « My Dashboard » → copiez votre clé).</p>
+  <input class="inp" id="keyInput" type="text" placeholder="Collez votre clé TomTom ici" autocomplete="off">
   <button class="btn" id="keySave">Activer le trafic</button>
   <button class="btn ghost" id="keyCancel">Annuler</button>
 </div>
@@ -360,7 +364,7 @@
 </div>
 
 <div class="fabs">
-  <button class="fab" id="trafficBtn" aria-label="Trafic Google en direct">🚦</button>
+  <button class="fab" id="trafficBtn" aria-label="Trafic TomTom en direct">🚦</button>
   <button class="fab" id="themeBtn" aria-label="Jour / Nuit">🌙</button>
   <button class="fab" id="locBtn" aria-label="Ma position">◎</button>
 </div>
@@ -451,7 +455,7 @@
   var routeCoords = null;
   // Navigation
   var navActive=false, navWatch=null, navSteps=[], navPtr=0, navMarker=null,
-      offCount=0, spokenFar={}, spokenNear={}, voiceOn=true,
+      offCount=0, spokenFar={}, spokenNear={}, spokenExit={}, voiceOn=true,
       following=true, navLast=null;
 
   // ---------- Map ----------
@@ -909,86 +913,58 @@
     if(navActive){ following=false; $('#recenter').classList.add('show'); }
   });
 
-  // ================= Trafic Google en direct =================
-  var gKey = HAS_LS ? (localStorage.getItem('cc_gkey')||'') : '';
-  var gLoaded=false, gMap=null, gTraffic=null, gActive=false;
+  // ================= Trafic TomTom en direct =================
+  var ttKey = HAS_LS ? (localStorage.getItem('cc_ttkey')||'') : '';
+  var ttLayer=null, ttActive=false, ttWarned=false;
+
+  function ttUrl(){
+    // Tuiles de flux de trafic TomTom (v4) — couleurs de circulation en temps réel
+    return 'https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key='+ttKey;
+  }
 
   $('#trafficBtn').addEventListener('click', function(){
-    if(gActive){ closeTraffic(); return; }
-    if(!gKey){ $('#keyPanel').classList.add('show'); return; }
+    if(ttActive){ closeTraffic(); return; }
+    if(!ttKey){ $('#keyPanel').classList.add('show'); return; }
     openTraffic();
   });
-  $('#gmapClose').addEventListener('click', closeTraffic);
   $('#keyCancel').addEventListener('click', function(){ $('#keyPanel').classList.remove('show'); });
   $('#keySave').addEventListener('click', function(){
     var k=($('#keyInput').value||'').trim();
     if(!k){ toast('Collez d\'abord votre clé.'); return; }
-    gKey=k; if(HAS_LS){ try{ localStorage.setItem('cc_gkey',k); }catch(e){} }
+    ttKey=k; if(HAS_LS){ try{ localStorage.setItem('cc_ttkey',k); }catch(e){} }
     $('#keyPanel').classList.remove('show'); $('#keyInput').value='';
     openTraffic();
   });
 
-  // Google appelle cette fonction en cas d'échec d'authentification (clé invalide / facturation)
-  window.gm_authFailure = function(){
-    toast('Clé Google refusée (invalide ou facturation non activée).',5000);
-    gKey=''; if(HAS_LS){ try{ localStorage.removeItem('cc_gkey'); }catch(e){} }
-    closeTraffic();
-  };
-
-  function loadGoogle(cb){
-    if(gLoaded && window.google && window.google.maps){ cb(); return; }
-    window.__gcb = function(){ gLoaded=true; cb(); };
-    var s=document.createElement('script');
-    s.src='https://maps.googleapis.com/maps/api/js?key='+encodeURIComponent(gKey)+'&callback=__gcb';
-    s.async=true; s.defer=true;
-    s.onerror=function(){ toast('Chargement de Google Maps impossible (connexion ?).',4000); };
-    document.head.appendChild(s);
-  }
-
   function openTraffic(){
-    toast('<span class="spin"></span>Chargement du trafic Google…',0);
-    loadGoogle(function(){
-      hideToast();
-      var c=map.getCenter(), z=map.getZoom();
-      try{
-        if(!gMap){
-          gMap=new google.maps.Map(document.getElementById('gmap'),{
-            center:{lat:c.lat,lng:c.lng}, zoom:z, disableDefaultUI:true,
-            zoomControl:true, gestureHandling:'greedy',
-            styles: themeMode==='dark' ? darkGStyle() : null
-          });
-          gTraffic=new google.maps.TrafficLayer();
-        } else {
-          gMap.setCenter({lat:c.lat,lng:c.lng}); gMap.setZoom(z);
-          gMap.setOptions({ styles: themeMode==='dark' ? darkGStyle() : null });
-        }
-        gTraffic.setMap(gMap);
-        gActive=true; document.body.classList.add('gtraffic');
-        $('#trafficBtn').classList.add('on');
-        google.maps.event.trigger(gMap,'resize');
-        toast('Trafic en direct affiché. Vert = fluide, rouge = ralenti.',3500);
-      }catch(e){ toast('Impossible d\'afficher le trafic Google.',4000); }
-    });
+    ttWarned=false;
+    if(!ttLayer){
+      ttLayer=L.tileLayer(ttUrl(), { maxZoom:22, opacity:0.9, zIndex:350 });
+      ttLayer.on('tileerror', function(){
+        if(ttWarned) return; ttWarned=true;
+        toast('Trafic indisponible — clé TomTom invalide ou quota atteint.',5000);
+        clearKey();
+      });
+    } else {
+      ttLayer.setUrl(ttUrl());
+    }
+    ttLayer.addTo(map);
+    ttActive=true;
+    $('#trafficBtn').classList.add('on');
+    $('#trafficLegend').classList.add('show');
+    toast('🚦 Trafic en direct affiché.',2500);
   }
 
   function closeTraffic(){
-    if(gMap){
-      var gc=gMap.getCenter();
-      if(gc) map.setView([gc.lat(),gc.lng()], gMap.getZoom()); // reporte la vue sur Leaflet
-    }
-    gActive=false; document.body.classList.remove('gtraffic');
+    if(ttLayer){ map.removeLayer(ttLayer); }
+    ttActive=false;
     $('#trafficBtn').classList.remove('on');
+    $('#trafficLegend').classList.remove('show');
   }
 
-  function darkGStyle(){
-    return [
-      {elementType:'geometry',stylers:[{color:'#1b2130'}]},
-      {elementType:'labels.text.fill',stylers:[{color:'#8b95ab'}]},
-      {elementType:'labels.text.stroke',stylers:[{color:'#12161f'}]},
-      {featureType:'water',elementType:'geometry',stylers:[{color:'#0c0f16'}]},
-      {featureType:'road',elementType:'geometry',stylers:[{color:'#2e3850'}]},
-      {featureType:'poi',stylers:[{visibility:'off'}]}
-    ];
+  function clearKey(){
+    ttKey=''; if(HAS_LS){ try{ localStorage.removeItem('cc_ttkey'); }catch(e){} }
+    closeTraffic();
   }
 
   // open sheet a touch on first load so controls are discoverable
@@ -1109,11 +1085,11 @@
     if(!navigator.geolocation){ toast('Géolocalisation non disponible sur cet appareil.'); return; }
     navSteps=flattenSteps(lastRoute);
     if(navSteps.length<2){ toast('Itinéraire trop court pour le guidage.'); return; }
-    navPtr=1; offCount=0; spokenFar={}; spokenNear={};
+    navPtr=1; offCount=0; spokenFar={}; spokenNear={}; spokenExit={};
     navActive=true; following=true; document.body.classList.add('nav');
     $('#recenter').classList.remove('show');
     sheet.classList.remove('open');
-    map.setZoom(17);
+    map.setZoom(16); // un cran plus large pour compenser l'agrandissement lié à la rotation
     requestWake();
     if(navMarker){ map.removeLayer(navMarker); navMarker=null; }
     // réveille la synthèse vocale (nécessite un geste utilisateur — ce clic)
@@ -1127,6 +1103,7 @@
   function stopNav(){
     navActive=false; following=true; document.body.classList.remove('nav');
     $('#recenter').classList.remove('show');
+    resetRotation();
     releaseWake();
     if(navWatch!=null){ navigator.geolocation.clearWatch(navWatch); navWatch=null; }
     if(navMarker){ map.removeLayer(navMarker); navMarker=null; }
@@ -1135,10 +1112,24 @@
     openSheet();
   }
 
-  function navDot(heading){
-    var rot = (heading!=null && !isNaN(heading)) ? heading : 0;
+  function navDot(counter){
+    // counter = angle de contre-rotation pour que le véhicule pointe vers le haut
+    var rot = (counter!=null && !isNaN(counter)) ? counter : 0;
     return L.divIcon({className:'',iconSize:[22,22],iconAnchor:[11,11],
       html:'<div class="navdot"><i style="transform:rotate('+rot+'deg)"></i></div>'});
+  }
+
+  // Rotation « avant du véhicule vers le haut »
+  var mapEl=document.getElementById('map'), lastHd=null, contAngle=0;
+  function rotateHeadingUp(h){
+    if(h==null || isNaN(h)){ return contAngle; }
+    if(lastHd==null){ contAngle=h; lastHd=h; }
+    else { var dlt=h-lastHd; while(dlt>180)dlt-=360; while(dlt<-180)dlt+=360; contAngle+=dlt; lastHd=h; }
+    mapEl.style.transform='scale(1.55) rotate('+(-contAngle)+'deg)';
+    return contAngle;
+  }
+  function resetRotation(){
+    mapEl.style.transform=''; lastHd=null; contAngle=0;
   }
 
   function onNavPos(pos){
@@ -1148,9 +1139,11 @@
     // vitesse instantanée
     var sp = pos.coords.speed; // m/s ou null
     $('#navSpeed').textContent = (sp!=null && !isNaN(sp) && sp>=0) ? Math.round(sp*3.6)+' km/h' : '—';
-    // marqueur position
-    if(navMarker) navMarker.setLatLng(here).setIcon(navDot(hd));
-    else navMarker=L.marker(here,{icon:navDot(hd),zIndexOffset:1000}).addTo(map);
+    // orientation heading-up (uniquement quand on suit la position)
+    var counter = following ? rotateHeadingUp(hd) : contAngle;
+    // marqueur position : le véhicule pointe toujours vers le haut
+    if(navMarker) navMarker.setLatLng(here).setIcon(navDot(counter));
+    else navMarker=L.marker(here,{icon:navDot(counter),zIndexOffset:1000}).addTo(map);
     navLast=here;
     if(following) map.panTo(here,{animate:true,duration:.5});
 
@@ -1192,8 +1185,15 @@
     updateNavDisplay(d, fr, remainingFrom(navPtr));
 
     // annonces vocales
-    if(!spokenFar[navPtr] && d<=220){ spokenFar[navPtr]=true; speak('Dans '+fmtKm(d)+', '+fr.t.toLowerCase()); }
-    if(!spokenNear[navPtr] && d<=45){ spokenNear[navPtr]=true; speak(fr.t.toLowerCase()); }
+    var isExit = step.maneuver.type==='off ramp'; // sortie d'autoroute / voie rapide
+    if(isExit){
+      if(!spokenExit[navPtr] && d<=800){ spokenExit[navPtr]=true; speak('Dans 800 mètres, '+fr.t.toLowerCase()); }
+      if(!spokenFar[navPtr] && d<=250){ spokenFar[navPtr]=true; speak('Dans '+fmtKm(d)+', '+fr.t.toLowerCase()); }
+      if(!spokenNear[navPtr] && d<=70){ spokenNear[navPtr]=true; speak(fr.t.toLowerCase()); }
+    } else {
+      if(!spokenFar[navPtr] && d<=220){ spokenFar[navPtr]=true; speak('Dans '+fmtKm(d)+', '+fr.t.toLowerCase()); }
+      if(!spokenNear[navPtr] && d<=45){ spokenNear[navPtr]=true; speak(fr.t.toLowerCase()); }
+    }
   }
 
   function remainingFrom(ptr){
@@ -1227,7 +1227,7 @@
         L.polyline(routeCoords,{color:'#0b1220',weight:10,opacity:.6}),
         L.polyline(routeCoords,{color:'#3b82f6',weight:6,opacity:1})
       ]).addTo(map);
-      navSteps=flattenSteps(rt); navPtr=1; spokenFar={}; spokenNear={};
+      navSteps=flattenSteps(rt); navPtr=1; spokenFar={}; spokenNear={}; spokenExit={};
       speak('Itinéraire recalculé.');
     }).catch(function(){ hideToast(); toast('Recalcul indisponible.'); });
   }

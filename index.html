@@ -279,6 +279,12 @@
   #trafficLegend.show{ display:block; }
   #trafficLegend .row{ display:flex; align-items:center; gap:7px; margin:3px 0; }
   #trafficLegend .sw{ width:16px; height:6px; border-radius:3px; }
+  /* Bouton dans les popups de service */
+  .leaflet-popup-content .popgo{
+    margin-top:8px; width:100%; border:0; border-radius:8px; padding:9px 10px;
+    background:var(--blue); color:#fff; font-size:13px; font-weight:600;
+  }
+  .leaflet-popup-content .popgo:active{ background:var(--blue-d); }
 
   /* Bouton recentrage (mode navigation) */
   #recenter{
@@ -774,23 +780,32 @@
     items.sort(function(a,b){return a.d-b.d;});
     items.slice(0,60).forEach(function(it){
       var p=POI[it.cat];
-      L.marker([it.lat,it.lng],{icon:poiIcon(p.emoji,p.color)})
-        .bindPopup('<b>'+p.emoji+' '+it.name+'</b><br>'+p.name)
+      var setDest=function(){
+        setPoint('to', it.lat, it.lng, it.name);
+        $('#toInp').value = it.name;
+        toast('🎯 Destination : '+it.name);
+        sheet.classList.remove('open');
+      };
+      var mk=L.marker([it.lat,it.lng],{icon:poiIcon(p.emoji,p.color)})
+        .bindPopup('<b>'+p.emoji+' '+it.name+'</b><br>'+p.name+
+          '<br><button class="popgo">🎯 Définir comme destination</button>')
         .addTo(poiLayer);
+      mk.on('popupopen', function(e){
+        var b=e.popup.getElement().querySelector('.popgo');
+        if(b) b.addEventListener('click', setDest);
+      });
       var row=document.createElement('div'); row.className='result';
       row.innerHTML='<div class="ico">'+p.emoji+'</div><div class="txt"><b>'+it.name+
         '</b><small>'+p.name+' · à '+fmtKm(it.d)+'</small></div>'+
-        '<button class="go" data-act="see">Voir</button>'+
+        '<button class="go" data-act="go">Y aller</button>'+
         '<button class="go" data-act="fav" style="margin-left:6px">★</button>';
-      row.querySelector('[data-act=see]').addEventListener('click', function(){
-        map.setView([it.lat,it.lng],16); sheet.classList.remove('open');
-      });
+      row.querySelector('[data-act=go]').addEventListener('click', setDest);
       row.querySelector('[data-act=fav]').addEventListener('click', function(){
         addFavFrom(it.name, it.lat, it.lng);
       });
       list.appendChild(row);
     });
-    toast(items.length+' résultat(s) sur la carte.');
+    toast(items.length+' résultat(s). Touchez un marqueur pour en faire votre destination.',3500);
   }
 
   // ---------- Vehicle profile ----------

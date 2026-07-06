@@ -13,18 +13,6 @@ Application web de navigation pensée pour les camping-cars, **optimisée mobile
 - **Favoris** et **profil véhicule** sauvegardés localement (persistants d'une session à l'autre).
 - **Trafic Google en direct** (optionnel, nécessite votre propre clé — voir plus bas).
 
-## 🚀 Publier sur GitHub Pages
-
-1. Créez un dépôt GitHub et déposez-y le contenu de ce dossier (au minimum `index.html`).
-2. Dans le dépôt : **Settings → Pages**.
-3. Sous *Build and deployment*, choisissez **Deploy from a branch**, branche `main`, dossier `/ (root)`, puis **Save**.
-4. Après une minute, votre appli est en ligne à l'adresse `https://<votre-utilisateur>.github.io/<nom-du-depot>/`.
-
-> Servir l'appli en **HTTPS** (ce que fait GitHub Pages) est important : c'est ce qui active correctement la **géolocalisation** et le **verrouillage d'écran** pendant la navigation, qui ne fonctionnent pas de façon fiable en ouverture locale `file://`.
-
-### Astuce mobile
-Une fois la page ouverte sur votre téléphone, utilisez **« Ajouter à l'écran d'accueil »** : l'appli s'ouvre alors en plein écran, comme une application native.
-
 ## 🚦 Trafic Google en direct (optionnel)
 
 Le trafic temps réel de Google n'est pas accessible gratuitement sans authentification. Pour l'activer :

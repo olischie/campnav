@@ -400,6 +400,8 @@
         <button class="chip" data-cat="camp">⛺ Campings</button>
         <button class="chip" data-cat="park">🅿 Parkings</button>
         <button class="chip" data-cat="fuel">⛽ Carburant</button>
+        <button class="chip" data-cat="food">🍽️ Restaurants</button>
+        <button class="chip" data-cat="shop">🛒 Supermarchés</button>
       </div>
       <button class="btn" id="searchPoi">Chercher dans cette zone</button>
       <p class="hint">La recherche porte sur la portion de carte visible. Déplacez / dézoomez la carte puis relancez pour élargir.</p>
@@ -707,7 +709,12 @@
     park:  { emoji:'🅿', color:'#64748b', name:'Parking',
              q:['node["amenity"="parking"]','way["amenity"="parking"]'] },
     fuel:  { emoji:'⛽', color:'#d97706', name:'Carburant',
-             q:['node["amenity"="fuel"]','way["amenity"="fuel"]'] }
+             q:['node["amenity"="fuel"]','way["amenity"="fuel"]'] },
+    food:  { emoji:'🍽️', color:'#e11d48', name:'Restaurant',
+             q:['node["amenity"="restaurant"]','way["amenity"="restaurant"]',
+                'node["amenity"="fast_food"]','way["amenity"="fast_food"]'] },
+    shop:  { emoji:'🛒', color:'#7c3aed', name:'Supermarché',
+             q:['node["shop"="supermarket"]','way["shop"="supermarket"]'] }
   };
   var activeCats = { aire:true };
   document.querySelectorAll('#poiChips .chip').forEach(function(ch){
@@ -751,6 +758,8 @@
     if(t.tourism==='camp_site') return 'camp';
     if(t.amenity==='parking') return 'park';
     if(t.amenity==='fuel') return 'fuel';
+    if(t.amenity==='restaurant'||t.amenity==='fast_food') return 'food';
+    if(t.shop==='supermarket') return 'shop';
     return null;
   }
   function renderPois(items){

@@ -238,7 +238,7 @@
 
   /* ---------- Navigation mode ---------- */
   body.nav #top, body.nav .fabs, body.nav #dash, body.nav #sheet,
-  body.nav #trafficLegend, body.nav #keyPanel{ display:none !important; }
+  body.nav #keyPanel{ display:none !important; }
   #navTop{
     position:absolute; z-index:800; left:10px; right:10px; top:calc(10px + var(--safe-t));
     background:var(--blue-d); border:1px solid #1e40af; border-radius:16px;
@@ -312,16 +312,6 @@
   #keyPanel .sep{ height:1px; background:var(--line); margin:22px 0 4px; }
   #keyPanel .state{ font-size:12px; margin:6px 0 0; }
   #keyPanel .state.on{ color:var(--green); }
-  /* Légende trafic */
-  #trafficLegend{
-    position:absolute; z-index:590; left:10px;
-    bottom:calc(var(--sheet-collapsed) + 86px + var(--safe-b));
-    background:var(--panel); border:1px solid var(--line); border-radius:12px;
-    padding:8px 12px; display:none; font-size:12px; box-shadow:0 6px 18px rgba(0,0,0,.4);
-  }
-  #trafficLegend.show{ display:block; }
-  #trafficLegend .row{ display:flex; align-items:center; gap:7px; margin:3px 0; }
-  #trafficLegend .sw{ width:16px; height:6px; border-radius:3px; }
   /* Bouton dans les popups de service */
   .leaflet-popup-content .popgo{
     margin-top:8px; width:100%; border:0; border-radius:8px; padding:9px 10px;
@@ -361,12 +351,6 @@
 <body>
 
 <div id="map"></div>
-
-<div id="trafficLegend">
-  <div class="row"><span class="sw" style="background:#22c55e"></span>Fluide</div>
-  <div class="row"><span class="sw" style="background:#f59e0b"></span>Dense</div>
-  <div class="row"><span class="sw" style="background:#ef4444"></span>Ralenti / bouchon</div>
-</div>
 
 <div id="keyPanel">
   <h3>🔑 Moteurs d'itinéraire</h3>
@@ -1628,7 +1612,6 @@ if (typeof L === 'undefined') {
     ttLayer.addTo(map);
     ttActive=true;
     $('#trafficBtn').classList.add('on');
-    $('#trafficLegend').classList.add('show');
     if(!silent) toast('🚦 Trafic en direct affiché.',2500);
   }
 
@@ -1636,7 +1619,6 @@ if (typeof L === 'undefined') {
     if(ttLayer){ map.removeLayer(ttLayer); }
     ttActive=false;
     $('#trafficBtn').classList.remove('on');
-    $('#trafficLegend').classList.remove('show');
   }
 
   refreshKeyStates();

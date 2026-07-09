@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#12161f">
+<meta name="theme-color" content="#eef1f6" id="themeColorMeta">
 <meta name="referrer" content="no-referrer-when-downgrade">
-<meta name="description" content="GPS de navigation pour camping-car : itinéraire, alertes de hauteur, aires et services, guidage vocal, favoris et trafic en direct. Mobile-first.">
+<meta name="description" content="GPS de navigation pour camping-car : itinéraire adapté au gabarit, alertes de hauteur, aires et services, guidage vocal, favoris et trafic en direct. Mobile-first.">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -14,7 +14,12 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%233b82f6'/%3E%3Cpath d='M32 12c-9 0-16 7-16 16 0 12 16 24 16 24s16-12 16-24c0-9-7-16-16-16z' fill='%23fff'/%3E%3Ccircle cx='32' cy='28' r='6' fill='%233b82f6'/%3E%3C/svg%3E">
 <title>GPS Camping-Car</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+
+<!-- Leaflet 1.9.4 (cdnjs) — intégrité vérifiée à chaque chargement (SRI). -->
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"
+      integrity="sha512-xwE/Az9zrjBIphAcBb3F6JVqxf46+CDLwfLMHloNu6KEQCAWi6HcDUbeOfBIptF7tcCzusKFjFw2yuvEpDL9wQ=="
+      crossorigin="anonymous" referrerpolicy="no-referrer">
 <style>
   :root{
     --bg:#12161f; --panel:#1b2130; --panel-2:#232b3d; --line:#2e3850;
@@ -24,6 +29,10 @@
     --sheet-collapsed:64px;
     --safe-b:env(safe-area-inset-bottom,0px);
     --safe-t:env(safe-area-inset-top,0px);
+    /* rotation de la carte en mode navigation (contre-rotation des marqueurs) */
+    --maprot:0deg;
+    --navd:100vmax;
+    --puck:68%;
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
   html,body{margin:0;height:100%;}
@@ -34,7 +43,19 @@
   }
   .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
 
-  #map{position:absolute; inset:0; z-index:0; background:#0c0f16; transform-origin:50% 50%; transition:transform .4s ease-out;}
+  #map{
+    position:absolute; inset:0; z-index:0; background:#0c0f16;
+    transform-origin:50% 50%; transition:transform .35s ease-out;
+  }
+  /* En navigation, la carte est un carré plus grand que l'écran, centré sur le
+     véhicule : la rotation autour de son centre ne découvre jamais de coin vide. */
+  body.nav #map{
+    inset:auto; left:50%; top:var(--puck);
+    width:var(--navd); height:var(--navd);
+    margin-left:calc(var(--navd) / -2);
+    margin-top:calc(var(--navd) / -2);
+  }
+  body.nav .leaflet-control-attribution{display:none;}
   .leaflet-control-zoom{display:none;}
   .leaflet-bar,.leaflet-control-attribution{font-size:10px;}
 
@@ -77,7 +98,6 @@
   /* ---------- Floating buttons ---------- */
   .fabs{
     position:absolute; z-index:600; right:12px;
-    /* juste sous les deux champs Départ / Destination */
     top:calc(10px + var(--safe-t) + 118px);
     display:flex; flex-direction:column; gap:8px;
   }
@@ -193,27 +213,33 @@
   }
   @keyframes sp{to{transform:rotate(360deg);}}
 
-  /* Custom markers */
+  /* Custom markers — contre-rotation pour rester droits quand la carte tourne */
   .pin{
-    width:26px;height:26px;border-radius:50% 50% 50% 2px; transform:rotate(45deg);
+    width:26px;height:26px;border-radius:50% 50% 50% 2px;
+    transform:rotate(calc(45deg + var(--maprot)));
     border:2px solid #0b0e15; box-shadow:0 3px 8px rgba(0,0,0,.5);
     display:flex;align-items:center;justify-content:center;
   }
-  .pin span{transform:rotate(-45deg);font-size:12px;line-height:1;}
+  .pin span{transform:rotate(calc(-45deg - var(--maprot)));font-size:12px;line-height:1;}
   .poi{
     width:30px;height:30px;border-radius:50%;border:2px solid #0b0e15;
+    transform:rotate(var(--maprot));
     display:flex;align-items:center;justify-content:center;font-size:15px;
     box-shadow:0 3px 8px rgba(0,0,0,.45);
   }
   .warnpin{
     width:28px;height:28px;background:var(--red);color:#fff;border:2px solid #0b0e15;
+    transform:rotate(var(--maprot));
     border-radius:6px;display:flex;align-items:center;justify-content:center;
     font-weight:800;font-size:13px;box-shadow:0 3px 8px rgba(0,0,0,.5);
   }
-  @media (prefers-reduced-motion:reduce){#sheet{transition:none;}.spin{animation:none;}}
+  @media (prefers-reduced-motion:reduce){
+    #sheet{transition:none;} .spin{animation:none;} #map{transition:none;}
+  }
 
   /* ---------- Navigation mode ---------- */
-  body.nav #top, body.nav .fabs, body.nav #dash, body.nav #sheet{ display:none !important; }
+  body.nav #top, body.nav .fabs, body.nav #dash, body.nav #sheet,
+  body.nav #trafficLegend, body.nav #keyPanel{ display:none !important; }
   #navTop{
     position:absolute; z-index:800; left:10px; right:10px; top:calc(10px + var(--safe-t));
     background:var(--blue-d); border:1px solid #1e40af; border-radius:16px;
@@ -271,17 +297,22 @@
   body.light .suggest, body.light #navBottom{ box-shadow:0 6px 20px rgba(30,45,80,.14); }
   body.light #toast{ background:#ffffffee; color:#1a2233; }
 
-  /* Bouton Trafic TomTom + panneau de clé */
+  /* Bouton Trafic TomTom + panneau des clés d'API */
   #trafficBtn.on{ background:var(--blue); border-color:var(--blue); color:#fff; }
   #keyPanel{
     position:absolute; z-index:900; left:16px; right:16px;
-    top:calc(50% - 150px); background:var(--panel); border:1px solid var(--line);
+    top:calc(8% + var(--safe-t)); max-height:82dvh; overflow-y:auto;
+    background:var(--panel); border:1px solid var(--line);
     border-radius:18px; padding:18px; display:none; box-shadow:0 20px 50px rgba(0,0,0,.6);
   }
   #keyPanel.show{ display:block; }
   #keyPanel h3{ margin:0 0 8px; font-size:16px; }
+  #keyPanel h4{ margin:20px 0 4px; font-size:14px; }
   #keyPanel p{ font-size:12px; color:var(--muted); line-height:1.5; margin:8px 0; }
   #keyPanel a{ color:var(--blue); }
+  #keyPanel .sep{ height:1px; background:var(--line); margin:22px 0 4px; }
+  #keyPanel .state{ font-size:12px; margin:6px 0 0; }
+  #keyPanel .state.on{ color:var(--green); }
   /* Légende trafic */
   #trafficLegend{
     position:absolute; z-index:590; left:10px;
@@ -323,7 +354,7 @@
     .field input{ font-size:16px; }
   }
   @media (max-width:340px){
-    #navBottom .nb-cell:nth-child(3){ display:none; } /* masque ETA si trop étroit */
+    #navBottom .nb-cell:nth-child(3){ display:none; }
     .tab{ font-size:11px; }
   }
 </style>
@@ -339,12 +370,29 @@
 </div>
 
 <div id="keyPanel">
-  <h3>🚦 Trafic TomTom en direct</h3>
-  <p>Le trafic en temps réel utilise <b>votre propre clé d'API TomTom</b>. C'est gratuit pour un usage personnel : palier quotidien offert, <b>sans carte bancaire</b>.</p>
-  <p>Créez une clé sur <a href="https://developer.tomtom.com/" target="_blank" rel="noopener">developer.tomtom.com</a> (inscription gratuite → « My Dashboard » → copiez votre clé).</p>
-  <input class="inp" id="keyInput" type="text" placeholder="Collez votre clé TomTom ici" autocomplete="off">
-  <button class="btn" id="keySave">Activer le trafic</button>
-  <button class="btn ghost" id="keyCancel">Annuler</button>
+  <h3>🔑 Moteurs d'itinéraire</h3>
+  <p>L'appli essaie les moteurs dans cet ordre : <b>TomTom</b> (gabarit + trafic), puis <b>Openrouteservice</b> (gabarit, sans trafic), puis <b>OSRM</b> (voiture, dernier recours). Chaque clé est facultative.</p>
+
+  <h4>🚦 TomTom</h4>
+  <p>Trafic en direct, et itinéraire calculé pour votre gabarit sans vous appliquer les interdictions réservées aux poids lourds. Clé gratuite sur <a href="https://developer.tomtom.com/" target="_blank" rel="noopener">developer.tomtom.com</a>.</p>
+  <input class="inp" id="keyInput" type="password" placeholder="Clé TomTom"
+         autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+  <p class="state" id="ttState"></p>
+  <button class="btn" id="keySave">Enregistrer la clé TomTom</button>
+  <button class="btn ghost" id="keyForget" style="display:none">Oublier la clé TomTom</button>
+
+  <div class="sep"></div>
+
+  <h4>🧭 Openrouteservice</h4>
+  <p>Moteur libre fondé sur OpenStreetMap — la même source que les alertes de gabarit. Sert de repli quand TomTom est indisponible ou hors quota. Clé gratuite sur <a href="https://openrouteservice.org/dev/#/signup" target="_blank" rel="noopener">openrouteservice.org</a>.</p>
+  <input class="inp" id="orsInput" type="password" placeholder="Clé Openrouteservice"
+         autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+  <p class="state" id="orsState"></p>
+  <button class="btn" id="orsSave">Enregistrer la clé ORS</button>
+  <button class="btn ghost" id="orsForget" style="display:none">Oublier la clé ORS</button>
+
+  <div class="sep"></div>
+  <button class="btn ghost" id="keyCancel">Fermer</button>
 </div>
 
 <!-- Overlays navigation guidée -->
@@ -383,6 +431,7 @@
 </div>
 
 <div class="fabs">
+  <button class="fab" id="keysBtn" aria-label="Moteurs d'itinéraire et clés d'API">🔑</button>
   <button class="fab" id="trafficBtn" aria-label="Trafic TomTom en direct">🚦</button>
   <button class="fab" id="themeBtn" aria-label="Jour / Nuit">🌙</button>
   <button class="fab" id="locBtn" aria-label="Ma position">◎</button>
@@ -434,13 +483,13 @@
         <button class="chip" data-cat="tourism">🏛️ Sites touristiques</button>
       </div>
       <button class="btn" id="searchPoi">Chercher dans cette zone</button>
-      <p class="hint">La recherche porte sur la portion de carte visible. Déplacez / dézoomez la carte puis relancez pour élargir.</p>
+      <p class="hint">La recherche porte sur la portion de carte visible, et ramène jusqu'à 30 lieux par catégorie. Déplacez / dézoomez la carte puis relancez pour élargir.</p>
       <div id="poiList"></div>
     </div>
 
     <!-- VEHICLE -->
     <div class="pane" id="pane-veh">
-      <p class="hint">Vos dimensions servent à repérer les restrictions sur l'itinéraire (hauteur, poids, largeur, longueur) et à vous alerter par un signal sonore à leur approche. Renseignez celles qui vous concernent — elles sont sauvegardées.<br><b>⚠ Ces alertes reposent sur les données OpenStreetMap : elles ne remplacent jamais les panneaux routiers.</b></p>
+      <p class="hint">Vos dimensions servent à <b>calculer un itinéraire adapté</b> (avec une clé TomTom) et à vous <b>alerter</b> à l'approche des restrictions. Renseignez celles qui vous concernent — elles sont sauvegardées.<br><b>⚠ Les alertes reposent sur les données OpenStreetMap : elles ne remplacent jamais les panneaux routiers.</b></p>
       <label class="lb">Hauteur (m) — la plus critique</label>
       <input class="inp" id="vH" type="number" inputmode="decimal" step="0.05" placeholder="ex. 3.10">
       <div class="grid2">
@@ -450,6 +499,7 @@
       <label class="lb">Longueur (m)</label>
       <input class="inp" id="vLen" type="number" inputmode="decimal" step="0.1" placeholder="ex. 7.00">
       <button class="btn" id="saveVeh">Enregistrer le profil</button>
+      <p class="hint" id="vehEngineHint"></p>
     </div>
 
     <!-- FAVORITES -->
@@ -460,17 +510,21 @@
         <input class="inp" id="favName" type="text" placeholder="Nom (ex. Aire de Namur)" style="flex:1">
       </div>
       <button class="btn" id="addFav">★ Enregistrer ce lieu</button>
-      <p class="hint">Astuce : posez d'abord une destination (recherche ou appui sur la carte), donnez-lui un nom, puis enregistrez.</p>
+      <p class="hint">Astuce : posez d'abord une destination (recherche, ou depuis l'onglet Services), donnez-lui un nom, puis enregistrez.</p>
       <div id="favList"></div>
     </div>
 
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"
+        integrity="sha512-BB3hKbKWOc9Ez/TAwyWxNXeoV9c1v6FIeYiBieIWkpLjauysF18NzgR1MBNBXf8/KABdlkX68nAhlwcDFLGPCQ=="
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script>
 (function(){
   "use strict";
+
+  var OVERPASS = 'https://overpass-api.de/api/interpreter';
 
   // ---------- State ----------
   var vehicle = { h:null, w:null, l:null, len:null };
@@ -484,7 +538,7 @@
   // Navigation
   var navActive=false, navWatch=null, navSteps=[], navPtr=0, navMarker=null,
       offCount=0, spokenFar={}, spokenNear={}, spokenExit={}, voiceOn=true,
-      following=true, navLast=null;
+      following=true, navLast=null, navIdx=1;
 
   // ---------- Map ----------
   var map = L.map('map', { zoomControl:false, attributionControl:true })
@@ -508,15 +562,22 @@
 
   // ---------- Helpers ----------
   var $ = function(s){ return document.querySelector(s); };
+
+  // Échappement systématique : les noms viennent d'OpenStreetMap / Nominatim,
+  // donc de données tierces, et finissent dans du innerHTML.
+  var ESC = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return ESC[c]; }); }
+
   var toastEl = $('#toast'), toastT = null;
-  function toast(msg, ms){
-    toastEl.innerHTML = msg; toastEl.classList.add('show');
+  function toast(html, ms){
+    toastEl.innerHTML = html; toastEl.classList.add('show');
     if(toastT) clearTimeout(toastT);
     if(ms!==0) toastT = setTimeout(function(){ toastEl.classList.remove('show'); }, ms||2600);
   }
   function hideToast(){ toastEl.classList.remove('show'); }
   function fmtKm(m){ return m>=1000 ? (m/1000).toFixed(m<10000?1:0)+' km' : Math.round(m)+' m'; }
   function fmtDur(s){ var h=Math.floor(s/3600), m=Math.round((s%3600)/60); return h?(h+' h '+(m<10?'0':'')+m):(m+' min'); }
+  function num(v){ return (v!=null && !isNaN(v)) ? v : null; }
 
   function pinIcon(kind){
     var c = kind==='from' ? '#22c55e' : '#ef4444';
@@ -532,6 +593,41 @@
     return L.divIcon({ className:'', iconSize:[28,28], iconAnchor:[14,14],
       html:'<div class="warnpin">!</div>' });
   }
+
+  // ---------- Géométrie rapide (plan local équirectangulaire, en mètres) ----------
+  // Évite map.project/unproject dans les boucles chaudes.
+  // Chaque polyligne projetée transporte son propre facteur d'échelle `k`,
+  // pour que deux polylignes ne se marchent pas dessus.
+  function buildXY(coords){
+    var lat0 = coords[Math.floor(coords.length/2)][0];
+    var k = Math.cos(lat0*Math.PI/180)*111320;
+    var p = new Array(coords.length);
+    for(var i=0;i<coords.length;i++) p[i]=[coords[i][1]*k, coords[i][0]*110540];
+    return { p:p, k:k };
+  }
+  function segNear(px,py,ax,ay,bx,by){
+    var dx=bx-ax, dy=by-ay, l2=dx*dx+dy*dy;
+    var t = l2 ? ((px-ax)*dx+(py-ay)*dy)/l2 : 0;
+    if(t<0)t=0; else if(t>1)t=1;
+    var qx=ax+t*dx, qy=ay+t*dy;
+    return [qx, qy, (px-qx)*(px-qx)+(py-qy)*(py-qy)];
+  }
+  // Point de la polyligne le plus proche : {lat,lng,d,i}
+  function nearestOn(poly, lat, lng, i0, i1){
+    if(!poly || !poly.p || poly.p.length<2) return null;
+    var list=poly.p, k=poly.k;
+    var px=lng*k, py=lat*110540, best=Infinity, bx=0, by=0, bi=1;
+    var a = Math.max(1, i0==null?1:i0);
+    var b = Math.min(list.length-1, i1==null?list.length-1:i1);
+    for(var i=a;i<=b;i++){
+      var r=segNear(px,py, list[i-1][0],list[i-1][1], list[i][0],list[i][1]);
+      if(r[2]<best){ best=r[2]; bx=r[0]; by=r[1]; bi=i; }
+    }
+    return { lat: by/110540, lng: bx/k, d: Math.sqrt(best), i: bi };
+  }
+
+  var routeXY = null;   // polyligne complète, pour le suivi de navigation
+  var snapXY  = null;   // polyligne simplifiée, pour l'accrochage des restrictions
 
   // ---------- Sheet ----------
   var sheet = $('#sheet');
@@ -550,31 +646,33 @@
 
   // ---------- Geocoding (Nominatim) ----------
   function geocode(q){
-    var url = 'https://nominatim.openstreetmap.org/search?format=json&limit=5&addressdetails=1&q='
-              + encodeURIComponent(q);
+    var url = 'https://nominatim.openstreetmap.org/search?format=json&limit=5&addressdetails=1'
+            + '&accept-language=fr&q=' + encodeURIComponent(q);
     return fetch(url, { headers:{ 'Accept':'application/json' } }).then(function(r){ return r.json(); });
   }
   function reverse(lat,lng){
-    var url='https://nominatim.openstreetmap.org/reverse?format=json&lat='+lat+'&lon='+lng;
+    var url='https://nominatim.openstreetmap.org/reverse?format=json&accept-language=fr&lat='+lat+'&lon='+lng;
     return fetch(url).then(function(r){return r.json();}).then(function(d){
       return d && d.display_name ? d.display_name.split(',').slice(0,3).join(',') : (lat.toFixed(4)+', '+lng.toFixed(4));
     }).catch(function(){ return lat.toFixed(4)+', '+lng.toFixed(4); });
   }
 
   function wireField(which){
-    var inp = $('#'+which+'Inp'), sug = $('#'+which+'Sug');
+    var inp = $('#'+which+'Inp'), sug = $('#'+which+'Sug'), timer=null, inflight=0;
     var run = function(){
       var q = inp.value.trim();
       if(q.length<3){ sug.classList.remove('show'); return; }
+      var seq = ++inflight;
       toast('<span class="spin"></span>Recherche…',0);
       geocode(q).then(function(list){
+        if(seq!==inflight) return;              // réponse périmée
         hideToast();
         if(!list || !list.length){ sug.innerHTML='<div class="row">Aucun résultat</div>'; sug.classList.add('show'); return; }
         sug.innerHTML='';
         list.forEach(function(it){
-          var parts = it.display_name.split(',');
+          var parts = String(it.display_name||'').split(',');
           var row = document.createElement('div'); row.className='row';
-          row.innerHTML='<b>'+parts[0]+'</b><small>'+parts.slice(1,4).join(',').trim()+'</small>';
+          row.innerHTML='<b>'+esc(parts[0])+'</b><small>'+esc(parts.slice(1,4).join(',').trim())+'</small>';
           row.addEventListener('click', function(){
             setPoint(which, +it.lat, +it.lon, parts[0]);
             inp.value = parts[0];
@@ -583,12 +681,26 @@
           sug.appendChild(row);
         });
         sug.classList.add('show');
-      }).catch(function(){ hideToast(); toast('Recherche indisponible, réessayez.'); });
+      }).catch(function(){ if(seq===inflight){ hideToast(); toast('Recherche indisponible. Vérifiez la connexion et réessayez.'); } });
     };
-    inp.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); run(); inp.blur(); } });
-    inp.addEventListener('search', run);
+    // Nominatim demande au plus 1 requête/seconde : on temporise généreusement.
+    inp.addEventListener('input', function(){
+      if(timer) clearTimeout(timer);
+      if(inp.value.trim().length<4){ sug.classList.remove('show'); return; }
+      timer=setTimeout(run, 900);
+    });
+    inp.addEventListener('keydown', function(e){
+      if(e.key==='Enter'){ e.preventDefault(); if(timer) clearTimeout(timer); run(); inp.blur(); }
+    });
   }
   wireField('from'); wireField('to');
+
+  // Fermer les suggestions dès qu'on touche ailleurs
+  document.addEventListener('pointerdown', function(e){
+    document.querySelectorAll('.suggest.show').forEach(function(s){
+      if(!s.parentNode.contains(e.target)) s.classList.remove('show');
+    });
+  }, true);
 
   document.querySelectorAll('.clr').forEach(function(b){
     b.addEventListener('click', function(){
@@ -615,9 +727,10 @@
   }
 
   // ---------- Moteur d'itinéraire : OSRM par défaut, TomTom si clé présente ----------
-  // Format interne unifié : {coords:[[lat,lng]], distance, duration, steps:[{distance,name,maneuver:{type,modifier,location:[lng,lat],exit}}]}
+  // Format interne unifié :
+  // {coords:[[lat,lng]], distance, duration, steps:[{distance,name,maneuver:{type,modifier,location:[lng,lat],exit}}], engine, gabarit}
 
-  function osrmFetch(routeType){
+  function osrmFetch(){
     var c = pts.from.lng+','+pts.from.lat+';'+pts.to.lng+','+pts.to.lat;
     var url='https://router.project-osrm.org/route/v1/driving/'+c+
             '?overview=full&geometries=geojson&steps=true&alternatives=true';
@@ -628,7 +741,8 @@
         (rt.legs||[]).forEach(function(leg){ (leg.steps||[]).forEach(function(s){ steps.push(s); }); });
         return {
           coords: rt.geometry.coordinates.map(function(p){ return [p[1],p[0]]; }),
-          distance: rt.distance, duration: rt.duration, steps: steps, engine:'osrm'
+          distance: rt.distance, duration: rt.duration, steps: steps,
+          engine:'osrm', gabarit:false
         };
       });
     });
@@ -639,7 +753,7 @@
     m=(m||'').toUpperCase();
     if(m==='DEPART'||m==='START') return {type:'depart'};
     if(m==='ARRIVE'||m.indexOf('ARRIVE')===0) return {type:'arrive'};
-    if(m.indexOf('ROUNDABOUT')===0) return {type:'roundabout', modifier:'right'};
+    if(m.indexOf('ROUNDABOUT')===0) return {type:'roundabout', modifier:''};
     if(m.indexOf('MOTORWAY_EXIT')===0 || m==='TAKE_EXIT' || m.indexOf('EXIT')===0)
       return {type:'off ramp', modifier: m.indexOf('LEFT')>-1?'left':'right'};
     if(m.indexOf('MERGE')===0) return {type:'merge', modifier: m.indexOf('LEFT')>-1?'left':'right'};
@@ -653,13 +767,28 @@
     return {type:'continue', modifier:'straight'};
   }
 
-  function tomtomFetch(routeType){
+  // Dimensions transmises au moteur TomTom : c'est ce qui rend l'itinéraire
+  // réellement praticable (évitement des ponts bas, ponts limités en tonnage…).
+  function ttVehicleQuery(){
+    var qs='', any=false;
+    if(vehicle.h!=null){ qs+='&vehicleHeight='+vehicle.h; any=true; }
+    if(vehicle.l!=null){ qs+='&vehicleWidth='+vehicle.l; any=true; }
+    if(vehicle.len!=null){ qs+='&vehicleLength='+vehicle.len; any=true; }
+    if(vehicle.w!=null){ qs+='&vehicleWeight='+Math.round(vehicle.w*1000); any=true; } // kg
+    if(!any) return { mode:'car', qs:'', gabarit:false };
+    return { mode:'truck', qs:qs+'&vehicleCommercial=false', gabarit:true };
+  }
+
+  function tomtomFetch(rtType){
+    var v = ttVehicleQuery();
     var c = pts.from.lat+','+pts.from.lng+':'+pts.to.lat+','+pts.to.lng;
     var url='https://api.tomtom.com/routing/1/calculateRoute/'+c+'/json'+
             '?key='+encodeURIComponent(ttKey)+
-            '&maxAlternatives=2&routeType='+(routeType||'fastest')+
-            '&traffic=true&travelMode=car&instructionsType=coded&language=fr-FR';
+            '&maxAlternatives=2&routeType='+(rtType||'fastest')+
+            '&traffic=true&travelMode='+v.mode+v.qs+
+            '&instructionsType=coded&language=fr-FR';
     return fetch(url).then(function(r){
+      if(r.status===401 || r.status===403) throw new Error('tomtom-auth');
       if(!r.ok) throw new Error('tomtom '+r.status);
       return r.json();
     }).then(function(d){
@@ -683,10 +812,136 @@
           coords: coords,
           distance: rt.summary.lengthInMeters,
           duration: rt.summary.travelTimeInSeconds,
-          steps: steps, engine:'tomtom'
+          steps: steps, engine:'tomtom', gabarit:v.gabarit
         };
       });
     });
+  }
+
+  // ---------- Openrouteservice (driving-hgv) : gabarit, sans trafic ----------
+  // Types d'instruction ORS -> format interne (mêmes clés que OSRM).
+  function orsManeuver(t, exit){
+    switch(t){
+      case 0:  return {type:'turn', modifier:'left'};
+      case 1:  return {type:'turn', modifier:'right'};
+      case 2:  return {type:'turn', modifier:'sharp left'};
+      case 3:  return {type:'turn', modifier:'sharp right'};
+      case 4:  return {type:'turn', modifier:'slight left'};
+      case 5:  return {type:'turn', modifier:'slight right'};
+      case 6:  return {type:'continue', modifier:'straight'};
+      case 7:  return exit ? {type:'roundabout', exit:exit} : {type:'roundabout'};
+      case 8:  return {type:'continue', modifier:'straight'};
+      case 9:  return {type:'turn', modifier:'uturn'};
+      case 10: return {type:'arrive'};
+      case 11: return {type:'depart'};
+      case 12: return {type:'turn', modifier:'slight left'};
+      case 13: return {type:'turn', modifier:'slight right'};
+      default: return {type:'continue', modifier:'straight'};
+    }
+  }
+  var ORS_PREF = { fastest:'recommended', eco:'recommended', shortest:'shortest' };
+
+  function orsFetch(withAlts){
+    var restr={};
+    if(vehicle.h!=null)   restr.height = vehicle.h;   // m
+    if(vehicle.l!=null)   restr.width  = vehicle.l;   // m
+    if(vehicle.len!=null) restr.length = vehicle.len; // m
+    if(vehicle.w!=null)   restr.weight = vehicle.w;   // tonnes
+
+    var body = {
+      coordinates: [[pts.from.lng, pts.from.lat],[pts.to.lng, pts.to.lat]],
+      instructions: true, language: 'fr', units: 'm',
+      preference: ORS_PREF[routeType] || 'recommended',
+      // « goods » plutôt que « hgv » : un camping-car subit les limites physiques,
+      // pas les interdictions réservées au transport de marchandises lourd.
+      options: { vehicle_type:'goods', profile_params: { restrictions: restr } }
+    };
+    if(withAlts!==false){
+      body.alternative_routes = { target_count:2, weight_factor:1.6, share_factor:0.6 };
+    }
+
+    return fetch('https://api.openrouteservice.org/v2/directions/driving-hgv/geojson', {
+      method:'POST',
+      headers:{ 'Authorization': orsKey, 'Content-Type':'application/json', 'Accept':'application/geo+json' },
+      body: JSON.stringify(body)
+    }).then(function(r){
+      if(r.status===401 || r.status===403) throw new Error('ors-auth');
+      if(r.status===429) throw new Error('ors-quota');
+      if(!r.ok) throw new Error('ors '+r.status);
+      return r.json();
+    }).then(function(d){
+      if(!d.features || !d.features.length) throw new Error('no route');
+      return d.features.map(function(f){
+        var g = f.geometry.coordinates;                 // [lng,lat]
+        var pr = f.properties || {};
+        var steps=[];
+        (pr.segments||[]).forEach(function(seg){
+          (seg.steps||[]).forEach(function(st){
+            var wp = (st.way_points && st.way_points.length) ? st.way_points[0] : 0;
+            var pt = g[Math.min(wp, g.length-1)];
+            var mv = orsManeuver(st.type, st.exit_number);
+            mv.location = [pt[0], pt[1]];               // [lng,lat]
+            steps.push({
+              distance: st.distance||0,
+              name: (st.name && st.name!=='-') ? st.name : '',
+              maneuver: mv
+            });
+          });
+        });
+        return {
+          coords: g.map(function(c){ return [c[1], c[0]]; }),
+          distance: pr.summary ? pr.summary.distance : 0,
+          duration: pr.summary ? pr.summary.duration : 0,
+          steps: steps, engine:'ors', gabarit:true
+        };
+      });
+    }).catch(function(e){
+      // Certaines combinaisons de restrictions refusent les alternatives : on réessaie sans.
+      if(withAlts!==false && e && /^ors 4\d\d$/.test(e.message)) return orsFetch(false);
+      throw e;
+    });
+  }
+
+  function hasDims(){
+    return vehicle.h!=null || vehicle.w!=null || vehicle.l!=null || vehicle.len!=null;
+  }
+
+  // Cascade : TomTom (gabarit + trafic) -> ORS (gabarit) -> OSRM (voiture).
+  // ORS n'est appelé que si des dimensions sont renseignées : sinon il n'apporte rien.
+  function fetchOrsOrOsrm(quiet){
+    if(orsKey && hasDims()){
+      return orsFetch().catch(function(e){
+        if(!quiet){
+          if(e && e.message==='ors-auth')  toast('Clé Openrouteservice refusée — repli sur le moteur standard.',4000);
+          else if(e && e.message==='ors-quota') toast('Quota Openrouteservice atteint — repli sur le moteur standard.',4000);
+          else toast('Openrouteservice indisponible — repli sur le moteur standard.',3000);
+        }
+        return osrmFetch();
+      });
+    }
+    return osrmFetch();
+  }
+  function fetchRoutes(quiet){
+    if(!ttKey) return fetchOrsOrOsrm(quiet);
+    return tomtomFetch(routeType).catch(function(e){
+      if(!quiet){
+        if(e && e.message==='tomtom-auth') toast('Clé TomTom refusée — passage au moteur suivant.',4000);
+        else toast('TomTom indisponible — passage au moteur suivant.',3000);
+      }
+      return fetchOrsOrOsrm(true);
+    });
+  }
+
+  // OSRM optimise toujours le temps : on choisit l'alternative
+  // qui correspond le mieux au critère demandé. TomTom et ORS le font eux-mêmes.
+  function pickByType(rs){
+    var bi=0, i;
+    if(routeType==='shortest'){
+      for(i=0;i<rs.length;i++) if(rs[i].distance<rs[bi].distance) bi=i;
+    } else {
+      for(i=0;i<rs.length;i++) if(rs[i].duration<rs[bi].duration) bi=i;
+    }
+    return bi;
   }
 
   function calcRoute(){
@@ -694,19 +949,13 @@
     clearRouteLayers();
     warnLayer.clearLayers();
     toast('<span class="spin"></span>Calcul de l\'itinéraire…',0);
-    var useTT = !!ttKey;
-    var p = useTT ? tomtomFetch(routeType).catch(function(){
-              toast('TomTom indisponible — repli sur le moteur standard.',3000);
-              return osrmFetch(routeType);
-            })
-          : osrmFetch(routeType);
-    p.then(function(routes){
+    fetchRoutes(false).then(function(routes){
       hideToast();
       if(!routes || !routes.length){ toast('Aucun itinéraire routier trouvé.'); return; }
       altRoutes = routes;
       labelRoutes(altRoutes);
-      selectRoute(0, true);
-    }).catch(function(){ hideToast(); toast('Service d\'itinéraire indisponible.'); });
+      selectRoute(routes[0].engine==='osrm' ? pickByType(routes) : 0, true);
+    }).catch(function(){ hideToast(); toast('Service d\'itinéraire indisponible. Réessayez dans un instant.'); });
   }
 
   // Étiquette « le plus rapide » / « le plus court » parmi les alternatives
@@ -732,11 +981,19 @@
     altLayers=[];
   }
 
+  function drawRoute(coords){
+    return L.layerGroup([
+      L.polyline(coords,{color:'#0b1220',weight:10,opacity:.6}),
+      L.polyline(coords,{color:'#3b82f6',weight:6,opacity:1})
+    ]).addTo(map);
+  }
+
   // Trace toutes les alternatives (gris) puis la sélectionnée (bleu, au-dessus)
   function selectRoute(idx, fit){
     if(!altRoutes[idx]) return;
     activeIdx=idx;
     clearRouteLayers();
+    warnLayer.clearLayers();
     altRoutes.forEach(function(r,i){
       if(i===idx) return;
       var l=L.polyline(r.coords,{color:'#8b95ab',weight:5,opacity:.55,dashArray:'6,7'}).addTo(map);
@@ -745,10 +1002,9 @@
     });
     var rt=altRoutes[idx];
     lastRoute=rt; routeCoords=rt.coords;
-    routeLayer=L.layerGroup([
-      L.polyline(rt.coords,{color:'#0b1220',weight:10,opacity:.6}),
-      L.polyline(rt.coords,{color:'#3b82f6',weight:6,opacity:1})
-    ]).addTo(map);
+    routeXY = buildXY(routeCoords);
+    navIdx = 1;
+    routeLayer = drawRoute(rt.coords);
     if(fit) map.fitBounds(L.latLngBounds(rt.coords),{padding:[50,50]});
     showDash(rt.distance, rt.duration);
     renderRouteInfo();
@@ -766,23 +1022,29 @@
     t.style.color = state==='bad'?'#ffb4b4':(state==='warn'?'#ffd88a':(state==='ok'?'#a7e8bf':'var(--muted)'));
   }
 
+  function engineLabel(){
+    if(!lastRoute) return 'moteur standard';
+    if(lastRoute.engine==='tomtom') return lastRoute.gabarit ? 'TomTom · trafic + gabarit' : 'TomTom · trafic en direct';
+    if(lastRoute.engine==='ors')    return 'Openrouteservice · gabarit, sans trafic';
+    return 'OSRM · gabarit non pris en compte';
+  }
+
   function renderRouteInfo(){
     var el=$('#routeInfo'); el.className='';
     el.innerHTML='';
-    var eng = (lastRoute && lastRoute.engine==='tomtom') ? 'TomTom · trafic en direct' : 'moteur standard';
     altRoutes.forEach(function(r,i){
       var row=document.createElement('div');
       row.className='result'+(i===activeIdx?' routesel':'');
       row.innerHTML='<div class="ico">'+(i===activeIdx?'🔵':'⚪')+'</div>'+
         '<div class="txt"><b>'+fmtKm(r.distance)+' · '+fmtDur(r.duration)+'</b>'+
-        '<small>'+r.label+'</small></div>';
+        '<small>'+esc(r.label)+'</small></div>';
       row.addEventListener('click', function(){ selectRoute(i,false); });
       el.appendChild(row);
     });
     var note=document.createElement('p'); note.className='hint';
-    note.textContent = altRoutes.length>1
-      ? 'Touchez un itinéraire pour le choisir ('+eng+').'
-      : 'Un seul itinéraire trouvé ('+eng+').';
+    note.textContent = (altRoutes.length>1
+      ? 'Touchez un itinéraire pour le choisir'
+      : 'Un seul itinéraire trouvé') + ' (' + engineLabel() + ').';
     el.appendChild(note);
     $('#startNav').style.display='block';
     $('#clearRoute').style.display='block';
@@ -793,8 +1055,8 @@
     ch.addEventListener('click', function(){
       document.querySelectorAll('#routeTypes .chip').forEach(function(x){x.classList.remove('on');});
       ch.classList.add('on'); routeType=ch.dataset.rt;
-      if(!ttKey && routeType!=='fastest'){
-        toast('Sans clé TomTom, le moteur optimise toujours le temps. Les alternatives restent étiquetées.',4500);
+      if(!ttKey && routeType==='eco'){
+        toast('Le critère « économique » n\'existe que chez TomTom : le trajet recommandé est retenu.',4500);
       }
       if(pts.from && pts.to) calcRoute();
     });
@@ -805,7 +1067,9 @@
     if(navActive) stopNav();
     clearRouteLayers();
     warnLayer.clearLayers();
-    lastRoute=null; routeCoords=null; altRoutes=[]; activeIdx=0;
+    if(warnAbort){ warnAbort.abort(); warnAbort=null; }
+    lastRoute=null; routeCoords=null; routeXY=null; snapXY=null;
+    altRoutes=[]; activeIdx=0; routeWarnings=[];
     $('#dash').classList.remove('show');
     setLamp('off','n/c');
     var el=$('#routeInfo'); el.className='empty'; el.textContent='Aucun itinéraire pour l\'instant.';
@@ -814,7 +1078,7 @@
   }
 
   // ---------- Restrictions de gabarit (Overpass) : hauteur, poids, largeur, longueur ----------
-  function parseMaxheight(v){
+  function parseMetres(v){
     if(v==null) return null;
     v=String(v).toLowerCase().trim();
     if(v==='default'||v==='none'||v==='unsigned'||v==='below_default') return null;
@@ -826,7 +1090,7 @@
     return m?parseFloat(m[1]):null;
   }
   // Poids : gère les tonnes (défaut), "t", "kg", "lbs"
-  function parseMaxweight(v){
+  function parseTonnes(v){
     if(v==null) return null;
     v=String(v).toLowerCase().trim();
     if(v==='none'||v==='default'||v==='unsigned') return null;
@@ -837,61 +1101,115 @@
     return n; // tonnes par défaut
   }
 
-  // Définition des 4 restrictions contrôlées
   var LIMITS = {
-    maxheight: { key:'h',   unit:'m', marge:0.05, label:'Hauteur',  parse:parseMaxheight },
-    maxweight: { key:'w',   unit:'t', marge:0,    label:'Poids',    parse:parseMaxweight },
-    maxwidth:  { key:'l',   unit:'m', marge:0.05, label:'Largeur',  parse:parseMaxheight },
-    maxlength: { key:'len', unit:'m', marge:0.10, label:'Longueur', parse:parseMaxheight }
+    maxheight: { key:'h',   unit:'m', marge:0.05, label:'Hauteur',  parse:parseMetres },
+    maxweight: { key:'w',   unit:'t', marge:0,    label:'Poids',    parse:parseTonnes },
+    maxwidth:  { key:'l',   unit:'m', marge:0.05, label:'Largeur',  parse:parseMetres },
+    maxlength: { key:'len', unit:'m', marge:0.10, label:'Longueur', parse:parseMetres }
   };
 
+  // Polyligne simplifiée servant de « corridor » à Overpass et d'accroche aux alertes.
+  function corridor(coords){
+    var pxs = coords.map(function(c){ return map.project(L.latLng(c[0],c[1]), 15); });
+    var simp = (L.LineUtil && L.LineUtil.simplify) ? L.LineUtil.simplify(pxs, 2) : pxs;
+    var step = Math.ceil(simp.length/300) || 1;
+    var out=[], i;
+    for(i=0;i<simp.length;i+=step) out.push(map.unproject(simp[i],15));
+    var last=map.unproject(simp[simp.length-1],15);
+    if(!out.length || out[out.length-1].lat!==last.lat) out.push(last);
+    return out.map(function(p){ return [p.lat, p.lng]; });
+  }
+
+  var warnAbort=null, warnKey='';
+  function routeSignature(coords){
+    var mid=coords[Math.floor(coords.length/2)];
+    return coords.length+'|'+coords[0][0].toFixed(4)+','+coords[0][1].toFixed(4)
+         +'|'+mid[0].toFixed(4)+','+mid[1].toFixed(4)
+         +'|'+coords[coords.length-1][0].toFixed(4)+','+coords[coords.length-1][1].toFixed(4)
+         +'|'+[vehicle.h,vehicle.w,vehicle.l,vehicle.len].join('/');
+  }
+
   function checkHeights(coords){
-    routeWarnings=[]; spokenWarn={};
+    spokenWarn={};
+    if(warnAbort){ warnAbort.abort(); warnAbort=null; }
+
     var dims=Object.keys(LIMITS).filter(function(t){ return vehicle[LIMITS[t].key]!=null; });
-    if(!dims.length){ setLamp('off','profil véhicule non renseigné'); warnLayer.clearLayers(); return; }
-    var bb=bboxOf(coords);
-    var area=(bb[2]-bb[0])*(bb[3]-bb[1]);
-    if(area>1.2){ setLamp('off','trajet trop long pour le contrôle auto'); return; }
+    if(!dims.length){
+      routeWarnings=[]; warnLayer.clearLayers();
+      setLamp('off','profil véhicule non renseigné');
+      return;
+    }
+    var sig = routeSignature(coords);
+    if(sig===warnKey && routeWarnings.length){ renderWarnings(routeWarnings, true); return; }
+
+    var poly = corridor(coords);
+    if(poly.length<2){ routeWarnings=[]; warnLayer.clearLayers(); setLamp('off','contrôle du gabarit impossible'); return; }
+    snapXY = buildXY(poly);
+
+    var polyStr = poly.map(function(p){ return p[0].toFixed(5)+','+p[1].toFixed(5); }).join(',');
+    if(polyStr.length>60000){ routeWarnings=[]; warnLayer.clearLayers(); setLamp('off','trajet trop long pour le contrôle auto'); return; }
+
+    routeWarnings=[]; warnLayer.clearLayers();
     setLamp('off','contrôle du gabarit…');
+
+    // Un corridor de 40 m autour du trajet, au lieu de la bbox entière : la
+    // requête reste petite même sur un long parcours.
     var body='';
-    dims.forEach(function(t){
-      body+='way["'+t+'"]('+bb.join(',')+');node["'+t+'"]('+bb.join(',')+');';
-    });
-    var q='[out:json][timeout:25];('+body+');out center tags;';
-    fetch('https://overpass-api.de/api/interpreter',{method:'POST',body:q})
-      .then(function(r){return r.json();})
+    dims.forEach(function(t){ body += 'nwr["'+t+'"](around:40,'+polyStr+');out geom 80;'; });
+    var q='[out:json][timeout:60];'+body;
+
+    warnAbort = ('AbortController' in window) ? new AbortController() : null;
+    fetch(OVERPASS,{ method:'POST', body:q, signal: warnAbort?warnAbort.signal:undefined })
+      .then(function(r){ return r.json(); })
       .then(function(d){
-        var low=[];
+        var low=[], seen={};
         (d.elements||[]).forEach(function(el){
+          if(el.type==='relation') return;
           var t=el.tags||{};
-          var lat=el.lat||(el.center&&el.center.lat), lng=el.lon||(el.center&&el.center.lon);
-          if(!lat||!lng) return;
-          if(distToRoute(lat,lng) > 40) return; // uniquement sur le trajet
+          var best=null;
+          if(el.lat!=null && el.lon!=null){
+            best = nearestOn(snapXY, el.lat, el.lon);
+          } else if(el.geometry && el.geometry.length){
+            el.geometry.forEach(function(g){
+              var s=nearestOn(snapXY, g.lat, g.lon);
+              if(s && (!best || s.d<best.d)) best=s;
+            });
+          }
+          if(!best || best.d>60) return;
           dims.forEach(function(tag){
             var L2=LIMITS[tag];
             var lim=L2.parse(t[tag]);
             var mine=vehicle[L2.key];
-            if(lim!=null && mine!=null && lim < mine + L2.marge){
-              low.push({lat:lat, lng:lng, kind:L2.label, unit:L2.unit,
-                        lim:lim, mine:mine, name:(t.name||L2.label+' limitée')});
-            }
+            if(lim==null || mine==null) return;
+            if(lim >= mine + L2.marge) return;
+            var k = tag+'@'+best.lat.toFixed(4)+','+best.lng.toFixed(4);
+            if(seen[k]) return; seen[k]=true;
+            low.push({ lat:best.lat, lng:best.lng, kind:L2.label, unit:L2.unit,
+                       lim:lim, mine:mine, name:(t.name||L2.label+' limitée') });
           });
         });
+        warnKey = sig;
         routeWarnings=low;
-        renderWarnings(low);
-      }).catch(function(){ setLamp('off','contrôle du gabarit indisponible'); });
+        renderWarnings(low, false);
+      })
+      .catch(function(e){
+        if(e && e.name==='AbortError') return;
+        routeWarnings=[]; warnLayer.clearLayers();
+        setLamp('off','contrôle du gabarit indisponible');
+      });
   }
-  function bboxOf(coords){
-    var s=90,w=180,n=-90,e=-180;
-    coords.forEach(function(c){ s=Math.min(s,c[0]); n=Math.max(n,c[0]); w=Math.min(w,c[1]); e=Math.max(e,c[1]); });
-    return [s,w,n,e];
-  }
-  function renderWarnings(low){
+
+  function renderWarnings(low, silent){
     warnLayer.clearLayers();
-    if(!low.length){ setLamp('ok','aucune restriction sur le trajet'); return; }
+    if(!low.length){
+      setLamp('ok', lastRoute && lastRoute.gabarit
+        ? 'itinéraire calculé pour votre gabarit'
+        : 'aucune restriction repérée sur le trajet');
+      return;
+    }
     low.forEach(function(o){
       L.marker([o.lat,o.lng],{icon:warnIcon()})
-        .bindPopup('<b>⚠ '+o.name+'</b><br>'+o.kind+' max : '+o.lim.toFixed(2)+' '+o.unit+
+        .bindPopup('<b>⚠ '+esc(o.name)+'</b><br>'+o.kind+' max : '+o.lim.toFixed(2)+' '+o.unit+
                    '<br>Votre véhicule : '+o.mine.toFixed(2)+' '+o.unit)
         .addTo(warnLayer);
     });
@@ -899,8 +1217,10 @@
     low.forEach(function(o){ kinds[o.kind]=true; });
     var list=Object.keys(kinds).join(', ').toLowerCase();
     setLamp('bad', low.length+' restriction'+(low.length>1?'s':'')+' ('+list+')');
-    toast('⚠ '+low.length+' restriction(s) de gabarit sur votre trajet : '+list+'. Voir les repères rouges.',4500);
-    alertTone('warn'); // signal sonore au calcul de l'itinéraire
+    if(!silent){
+      toast('⚠ '+low.length+' restriction(s) de gabarit sur votre trajet : '+esc(list)+'. Voir les repères rouges.',4500);
+      alertTone('warn');
+    }
   }
 
   // ---------- POI (Overpass) ----------
@@ -938,6 +1258,7 @@
     });
   });
 
+  var poiAbort=null;
   $('#searchPoi').addEventListener('click', function(){
     var cats=Object.keys(activeCats).filter(function(k){return activeCats[k];});
     if(!cats.length){ toast('Choisissez au moins une catégorie.'); return; }
@@ -946,25 +1267,39 @@
     poiLayer.clearLayers();
     $('#poiList').innerHTML='';
     toast('<span class="spin"></span>Recherche des services…',0);
-    var body='';
-    cats.forEach(function(c){ POI[c].q.forEach(function(sel){ body+=sel+'('+bb.join(',')+');'; }); });
-    var q='[out:json][timeout:25];('+body+');out center tags 60;';
-    fetch('https://overpass-api.de/api/interpreter',{method:'POST',body:q})
+
+    // Un « out » par catégorie : la limite de 30 s'applique à chacune,
+    // sinon une seule catégorie prolifique mangerait tout le quota.
+    var q='[out:json][timeout:25];';
+    cats.forEach(function(c){
+      q += '(' + POI[c].q.map(function(sel){ return sel+'('+bb.join(',')+');'; }).join('') + ');out center 30;';
+    });
+
+    if(poiAbort) poiAbort.abort();
+    poiAbort = ('AbortController' in window) ? new AbortController() : null;
+    fetch(OVERPASS,{ method:'POST', body:q, signal: poiAbort?poiAbort.signal:undefined })
       .then(function(r){return r.json();})
       .then(function(d){
         hideToast();
-        var items=[];
+        var items=[], seen={};
         (d.elements||[]).forEach(function(el){
-          var lat=el.lat||(el.center&&el.center.lat), lng=el.lon||(el.center&&el.center.lon);
-          if(!lat||!lng) return;
-          var cat=catOf(el.tags||{});
+          var lat = (el.lat!=null) ? el.lat : (el.center ? el.center.lat : null);
+          var lng = (el.lon!=null) ? el.lon : (el.center ? el.center.lon : null);
+          if(lat==null || lng==null) return;
+          var tags = el.tags||{};
+          var cat=catOf(tags);
           if(!cat) return;
-          // un site touristique sans nom n'apporte rien : on l'ignore
-          if(cat==='tourism' && !(el.tags && el.tags.name)) return;
-          items.push({lat:lat,lng:lng,cat:cat,name:(el.tags.name||POI[cat].name),tags:el.tags});
+          if(cat==='tourism' && !tags.name) return; // un site touristique sans nom n'apporte rien
+          var id = el.type+'/'+el.id;
+          if(seen[id]) return; seen[id]=true;
+          items.push({lat:lat,lng:lng,cat:cat,name:(tags.name||POI[cat].name),tags:tags});
         });
         renderPois(items);
-      }).catch(function(){ hideToast(); toast('Service de recherche indisponible.'); });
+      })
+      .catch(function(e){
+        if(e && e.name==='AbortError') return;
+        hideToast(); toast('Service de recherche indisponible. Réessayez dans un instant.');
+      });
   });
 
   function catOf(t){
@@ -980,7 +1315,6 @@
     if(t.historic==='castle'||t.historic==='monument'||t.historic==='ruins') return 'tourism';
     return null;
   }
-  // Libellé plus précis pour les sites touristiques
   function subLabel(cat,t){
     if(cat!=='tourism') return POI[cat].name;
     if(t.tourism==='museum') return 'Musée';
@@ -996,17 +1330,17 @@
     var center=map.getCenter();
     items.forEach(function(it){ it.d=map.distance(center,[it.lat,it.lng]); });
     items.sort(function(a,b){return a.d-b.d;});
-    items.slice(0,60).forEach(function(it){
+    items.slice(0,80).forEach(function(it){
       var p=POI[it.cat];
       var lbl=subLabel(it.cat, it.tags||{});
       var setDest=function(){
         setPoint('to', it.lat, it.lng, it.name);
         $('#toInp').value = it.name;
-        toast('🎯 Destination : '+it.name);
+        toast('🎯 Destination : '+esc(it.name));
         sheet.classList.remove('open');
       };
       var mk=L.marker([it.lat,it.lng],{icon:poiIcon(p.emoji,p.color)})
-        .bindPopup('<b>'+p.emoji+' '+it.name+'</b><br>'+lbl+
+        .bindPopup('<b>'+p.emoji+' '+esc(it.name)+'</b><br>'+esc(lbl)+
           '<br><button class="popgo">🎯 Définir comme destination</button>')
         .addTo(poiLayer);
       mk.on('popupopen', function(e){
@@ -1014,8 +1348,8 @@
         if(b) b.addEventListener('click', setDest);
       });
       var row=document.createElement('div'); row.className='result';
-      row.innerHTML='<div class="ico">'+p.emoji+'</div><div class="txt"><b>'+it.name+
-        '</b><small>'+lbl+' · à '+fmtKm(it.d)+'</small></div>'+
+      row.innerHTML='<div class="ico">'+p.emoji+'</div><div class="txt"><b>'+esc(it.name)+
+        '</b><small>'+esc(lbl)+' · à '+fmtKm(it.d)+'</small></div>'+
         '<button class="go" data-act="go">Y aller</button>'+
         '<button class="go" data-act="fav" style="margin-left:6px">★</button>';
       row.querySelector('[data-act=go]').addEventListener('click', setDest);
@@ -1028,16 +1362,23 @@
   }
 
   // ---------- Vehicle profile ----------
+  function vehHint(){
+    var t=$('#vehEngineHint');
+    if(!hasDims()){ t.textContent='Aucune dimension renseignée : ni calcul adapté, ni alertes.'; return; }
+    if(ttKey)  { t.textContent='Clé TomTom active : l\'itinéraire est calculé pour votre gabarit, avec le trafic.'; return; }
+    if(orsKey) { t.textContent='Clé Openrouteservice active : l\'itinéraire est calculé pour votre gabarit, sans trafic.'; return; }
+    t.textContent='Aucune clé : routage voiture standard — seules les alertes fonctionnent. Touchez 🔑 pour ajouter une clé.';
+  }
   $('#saveVeh').addEventListener('click', function(){
-    vehicle.h  = parseFloat($('#vH').value)||null;
-    vehicle.w  = parseFloat($('#vW').value)||null;
-    vehicle.l  = parseFloat($('#vL').value)||null;
-    vehicle.len= parseFloat($('#vLen').value)||null;
+    vehicle.h  = num(parseFloat($('#vH').value));
+    vehicle.w  = num(parseFloat($('#vW').value));
+    vehicle.l  = num(parseFloat($('#vL').value));
+    vehicle.len= num(parseFloat($('#vLen').value));
     saveVehicleStore();
-    toast(vehicle.h? ('Profil enregistré · hauteur '+vehicle.h.toFixed(2)+' m') : 'Profil enregistré.');
-    if(lastRoute && routeLayer){
-      checkHeights(lastRoute.coords);
-    }
+    vehHint();
+    toast(vehicle.h!=null ? ('Profil enregistré · hauteur '+vehicle.h.toFixed(2)+' m') : 'Profil enregistré.');
+    warnKey=''; // le profil a changé : le contrôle doit être refait
+    if(pts.from && pts.to) calcRoute(); // les dimensions changent aussi l'itinéraire TomTom
   });
 
   // ---------- Geolocation ----------
@@ -1051,21 +1392,23 @@
       reverse(lat,lng).then(function(lbl){
         setPoint('from',lat,lng,lbl); $('#fromInp').value=lbl;
       });
-    }, function(){ hideToast(); toast('Position indisponible (autorisation refusée ?).'); },
+    }, function(){ hideToast(); toast('Position indisponible. Autorisez la géolocalisation pour ce site.'); },
     { enableHighAccuracy:true, timeout:8000 });
   });
 
   // ---------- Thème jour / nuit ----------
+  var themeMeta = $('#themeColorMeta');
   function toggleTheme(){
     themeMode = themeMode==='dark' ? 'light' : 'dark';
     document.body.classList.toggle('light', themeMode==='light');
     applyTiles();
+    if(themeMeta) themeMeta.setAttribute('content', themeMode==='light' ? '#eef1f6' : '#12161f');
     var ico = themeMode==='dark' ? '🌙' : '☀️';
     var tb=$('#themeBtn'), nt=$('#navTheme');
-    if(tb) tb.textContent=ico; if(nt) nt.textContent=ico;
+    if(tb) tb.textContent=ico;
+    if(nt) nt.textContent=ico;
   }
   $('#themeBtn').addEventListener('click', toggleTheme);
-  // icônes initiales cohérentes avec le mode jour
   $('#themeBtn').textContent='☀️';
 
   // ================= Favoris + persistance (localStorage) =================
@@ -1079,27 +1422,33 @@
     }catch(e){}
     try{
       var v=JSON.parse(localStorage.getItem('cc_vehicle')||'null');
-      if(v){ vehicle=v;
-        if(v.h!=null)$('#vH').value=v.h; if(v.w!=null)$('#vW').value=v.w;
-        if(v.l!=null)$('#vL').value=v.l; if(v.len!=null)$('#vLen').value=v.len;
+      if(v){
+        vehicle={ h:num(v.h), w:num(v.w), l:num(v.l), len:num(v.len) };
+        if(vehicle.h!=null)$('#vH').value=vehicle.h;
+        if(vehicle.w!=null)$('#vW').value=vehicle.w;
+        if(vehicle.l!=null)$('#vL').value=vehicle.l;
+        if(vehicle.len!=null)$('#vLen').value=vehicle.len;
       }
     }catch(e){}
   }
   function saveFavs(){ if(HAS_LS){ try{ localStorage.setItem('cc_favs', JSON.stringify(favorites)); }catch(e){} } }
   function saveVehicleStore(){ if(HAS_LS){ try{ localStorage.setItem('cc_vehicle', JSON.stringify(vehicle)); }catch(e){} } }
 
+  var favSeq=0;
+  function newFavId(){ return Date.now()*1000 + (favSeq++ % 1000); }
+
   $('#addFav').addEventListener('click', function(){
     var name=($('#favName').value||'').trim();
     if(!pts.to){ toast('Posez d\'abord une destination.'); return; }
     if(!name){ name = pts.to.label || ('Lieu '+(favorites.length+1)); }
-    favorites.push({id:Date.now(), name:name, lat:pts.to.lat, lng:pts.to.lng});
+    favorites.push({id:newFavId(), name:name, lat:pts.to.lat, lng:pts.to.lng});
     saveFavs(); $('#favName').value=''; renderFavs();
-    toast('★ « '+name+' » enregistré.');
+    toast('★ « '+esc(name)+' » enregistré.');
   });
 
   function addFavFrom(name,lat,lng){
-    favorites.push({id:Date.now(), name:name, lat:lat, lng:lng});
-    saveFavs(); renderFavs(); toast('★ « '+name+' » ajouté aux favoris.');
+    favorites.push({id:newFavId(), name:name, lat:lat, lng:lng});
+    saveFavs(); renderFavs(); toast('★ « '+esc(name)+' » ajouté aux favoris.');
   }
   function removeFav(id){
     favorites=favorites.filter(function(f){return f.id!==id;});
@@ -1111,7 +1460,7 @@
     list.innerHTML='';
     favorites.forEach(function(f){
       var row=document.createElement('div'); row.className='result';
-      row.innerHTML='<div class="ico">★</div><div class="txt"><b>'+f.name+
+      row.innerHTML='<div class="ico">★</div><div class="txt"><b>'+esc(f.name)+
         '</b><small>'+f.lat.toFixed(4)+', '+f.lng.toFixed(4)+'</small></div>'+
         '<button class="go" data-act="go">Y aller</button>'+
         '<button class="go" data-act="del" style="margin-left:6px;color:#ff9a9a">Suppr.</button>';
@@ -1132,41 +1481,138 @@
     following=true; this.classList.remove('show');
     if(navLast){ if(map.getZoom()<16) map.setZoom(16); panFollow(navLast); }
   });
+  // Dès que l'utilisateur déplace la carte en navigation, on remet le nord en haut :
+  // Leaflet ignore la transform CSS, un glissement sur carte tournée irait de travers.
   map.on('dragstart', function(){
-    if(navActive){ following=false; $('#recenter').classList.add('show'); }
+    if(navActive && following){
+      following=false;
+      resetRotation();
+      $('#recenter').classList.add('show');
+    }
   });
 
-  // ================= Trafic TomTom en direct =================
-  var ttKey = HAS_LS ? (localStorage.getItem('cc_ttkey')||'') : '';
-  var ttLayer=null, ttActive=false, ttWarned=false;
+  // ================= Clés d'API : TomTom + Openrouteservice =================
+  var ttKey  = HAS_LS ? (localStorage.getItem('cc_ttkey') ||'') : '';
+  var orsKey = HAS_LS ? (localStorage.getItem('cc_orskey')||'') : '';
+  var ttLayer=null, ttActive=false, ttErrors=0, ttWarned=false;
+
+  function storeKey(name, val){
+    if(!HAS_LS) return;
+    try{ if(val) localStorage.setItem(name,val); else localStorage.removeItem(name); }catch(e){}
+  }
+  function refreshKeyStates(){
+    var a=$('#ttState'), b=$('#orsState');
+    a.textContent = ttKey ? '✓ Clé enregistrée' : 'Aucune clé enregistrée';
+    a.className = 'state'+(ttKey?' on':'');
+    b.textContent = orsKey ? '✓ Clé enregistrée' : 'Aucune clé enregistrée';
+    b.className = 'state'+(orsKey?' on':'');
+    $('#keyForget').style.display = ttKey ? 'block':'none';
+    $('#orsForget').style.display = orsKey ? 'block':'none';
+  }
+  function openKeyPanel(){ refreshKeyStates(); $('#keyPanel').classList.add('show'); }
+  $('#keysBtn').addEventListener('click', openKeyPanel);
 
   function ttUrl(){
-    // Tuiles de flux de trafic TomTom (v4) — couleurs de circulation en temps réel
-    return 'https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key='+ttKey;
+    return 'https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key='+encodeURIComponent(ttKey);
   }
 
   $('#trafficBtn').addEventListener('click', function(){
     if(ttActive){ closeTraffic(); return; }
-    if(!ttKey){ $('#keyPanel').classList.add('show'); return; }
+    if(!ttKey){ openKeyPanel(); return; }
     openTraffic();
   });
-  $('#keyCancel').addEventListener('click', function(){ $('#keyPanel').classList.remove('show'); });
+  $('#keyCancel').addEventListener('click', function(){
+    $('#keyPanel').classList.remove('show');
+    $('#keyInput').value=''; $('#orsInput').value='';
+  });
+
+  // Vérifie la clé une seule fois, sur une tuile connue. Seul un refus explicite
+  // (401/403) la rejette : une coupure réseau ne doit rien effacer.
+  function probeKey(k){
+    var u='https://api.tomtom.com/traffic/map/4/tile/flow/relative0/10/524/343.png?key='+encodeURIComponent(k);
+    return fetch(u).then(function(r){
+      if(r.status===401 || r.status===403) throw new Error('invalid');
+      return true;
+    }).catch(function(e){
+      if(e && e.message==='invalid') throw e;
+      return true; // hors ligne : on accepte, on verra à l'usage
+    });
+  }
+
   $('#keySave').addEventListener('click', function(){
     var k=($('#keyInput').value||'').trim();
     if(!k){ toast('Collez d\'abord votre clé.'); return; }
-    ttKey=k; if(HAS_LS){ try{ localStorage.setItem('cc_ttkey',k); }catch(e){} }
-    $('#keyPanel').classList.remove('show'); $('#keyInput').value='';
-    openTraffic();
+    toast('<span class="spin"></span>Vérification de la clé…',0);
+    probeKey(k).then(function(){
+      hideToast();
+      ttKey=k; ttErrors=0; ttWarned=false;
+      storeKey('cc_ttkey',k);
+      $('#keyPanel').classList.remove('show'); $('#keyInput').value='';
+      refreshKeyStates(); vehHint();
+      openTraffic();
+      if(pts.from && pts.to) calcRoute(); // recalcul avec trafic + gabarit
+    }).catch(function(){
+      hideToast();
+      toast('TomTom a refusé cette clé. Vérifiez-la dans « My Dashboard ».',5000);
+    });
+  });
+
+  $('#keyForget').addEventListener('click', function(){
+    ttKey=''; storeKey('cc_ttkey','');
+    closeTraffic(); refreshKeyStates(); vehHint();
+    toast('Clé TomTom oubliée.');
+    if(pts.from && pts.to) calcRoute();
+  });
+
+  // Vérifie la clé ORS sur un micro-trajet. Comme pour TomTom, seul un refus
+  // explicite (401/403) la rejette ; une coupure réseau ne doit rien effacer.
+  function probeOrsKey(k){
+    var u='https://api.openrouteservice.org/v2/directions/driving-car'
+        + '?api_key='+encodeURIComponent(k)+'&start=4.3517,50.8466&end=4.3600,50.8500';
+    return fetch(u).then(function(r){
+      if(r.status===401 || r.status===403) throw new Error('invalid');
+      return true;
+    }).catch(function(e){
+      if(e && e.message==='invalid') throw e;
+      return true;
+    });
+  }
+
+  $('#orsSave').addEventListener('click', function(){
+    var k=($('#orsInput').value||'').trim();
+    if(!k){ toast('Collez d\'abord votre clé.'); return; }
+    toast('<span class="spin"></span>Vérification de la clé…',0);
+    probeOrsKey(k).then(function(){
+      hideToast();
+      orsKey=k; storeKey('cc_orskey',k);
+      $('#orsInput').value='';
+      refreshKeyStates(); vehHint();
+      toast('🧭 Openrouteservice activé.',2500);
+      if(pts.from && pts.to && !ttKey) calcRoute();
+    }).catch(function(){
+      hideToast();
+      toast('Openrouteservice a refusé cette clé.',5000);
+    });
+  });
+
+  $('#orsForget').addEventListener('click', function(){
+    orsKey=''; storeKey('cc_orskey','');
+    refreshKeyStates(); vehHint();
+    toast('Clé Openrouteservice oubliée.');
+    if(pts.from && pts.to && !ttKey) calcRoute();
   });
 
   function openTraffic(){
-    ttWarned=false;
+    ttErrors=0; ttWarned=false;
     if(!ttLayer){
       ttLayer=L.tileLayer(ttUrl(), { maxZoom:22, opacity:0.9, zIndex:350 });
+      // Une tuile en échec n'est pas une clé invalide : coupure réseau, zone non
+      // couverte, quota momentané. On alerte, on n'efface jamais la clé.
       ttLayer.on('tileerror', function(){
-        if(ttWarned) return; ttWarned=true;
-        toast('Trafic indisponible — clé TomTom invalide ou quota atteint.',5000);
-        clearKey();
+        if(++ttErrors < 8 || ttWarned) return;
+        ttWarned=true;
+        toast('Trafic indisponible pour le moment (réseau ou quota). La clé est conservée.',5000);
+        closeTraffic();
       });
     } else {
       ttLayer.setUrl(ttUrl());
@@ -1185,18 +1631,16 @@
     $('#trafficLegend').classList.remove('show');
   }
 
-  function clearKey(){
-    ttKey=''; if(HAS_LS){ try{ localStorage.removeItem('cc_ttkey'); }catch(e){} }
-    closeTraffic();
-  }
+  refreshKeyStates();
+  vehHint();
 
-  // open sheet a touch on first load so controls are discoverable
+  // Ouvre le panneau au premier chargement pour rendre les onglets visibles
   setTimeout(openSheet, 400);
 
   // Départ = position actuelle par défaut
   if(navigator.geolocation){
     navigator.geolocation.getCurrentPosition(function(pos){
-      if(pts.from) return; // ne pas écraser un départ déjà choisi
+      if(pts.from) return;
       var lat=pos.coords.latitude, lng=pos.coords.longitude;
       reverse(lat,lng).then(function(lbl){
         if(pts.from) return;
@@ -1221,29 +1665,7 @@
     if(navActive && document.visibilityState==='visible' && !wakeLock) requestWake();
   });
 
-  function haversine(a,b){ return map.distance(a,b); } // mètres
-
-  // distance minimale d'un point à la polyligne (mètres)
-  function distToRoute(lat,lng){
-    if(!routeCoords) return Infinity;
-    var p=L.latLng(lat,lng), min=Infinity;
-    for(var i=1;i<routeCoords.length;i++){
-      var d=distToSeg(p, L.latLng(routeCoords[i-1]), L.latLng(routeCoords[i]));
-      if(d<min) min=d;
-    }
-    return min;
-  }
-  function distToSeg(p,a,b){
-    // projection approximative en coordonnées planes locales
-    var A=map.project(p), B=map.project(a), C=map.project(b);
-    var dx=C.x-B.x, dy=C.y-B.y, len2=dx*dx+dy*dy;
-    var t = len2? ((A.x-B.x)*dx+(A.y-B.y)*dy)/len2 : 0;
-    t=Math.max(0,Math.min(1,t));
-    var proj=L.point(B.x+t*dx, B.y+t*dy);
-    return map.distance(p, map.unproject(proj));
-  }
-
-  // Traduction des manœuvres OSRM en français + flèche
+  // Traduction des manœuvres en français + flèche
   function maneuverFr(step){
     var m=step.maneuver||{}, type=m.type||'', mod=m.modifier||'', road=step.name||'';
     var dir={
@@ -1262,13 +1684,13 @@
       case 'merge': return {t:'Insérez-vous '+dir+road_s, a:arrow(mod)};
       case 'on ramp': return {t:'Prenez la bretelle '+dir+road_s, a:arrow(mod)};
       case 'off ramp': return {t:'Prenez la sortie '+dir+road_s, a:arrow(mod)};
-      case 'fork': return {t:'Au embranchement, gardez '+dir+road_s, a:arrow(mod)};
+      case 'fork': return {t:'À l\'embranchement, gardez '+dir+road_s, a:arrow(mod)};
       case 'end of road': return {t:'En bout de route, tournez '+dir+road_s, a:arrow(mod)};
       case 'roundabout':
       case 'rotary':
       case 'roundabout turn':
         var ex=m.exit?(' — '+m.exit+'ᵉ sortie'):'';
-        return {t:'Au rond-point, sortez '+dir+ex+road_s, a:'↻'};
+        return {t:'Au rond-point'+(dir?', sortez '+dir:'')+ex+road_s, a:'↻'};
       default: return {t:(dir?('Continuez '+dir):'Continuez')+road_s, a:arrow(mod)};
     }
   }
@@ -1277,11 +1699,14 @@
       'sharp left':'⇐','sharp right':'⇒','straight':'↑','uturn':'⤺'}[mod]||'↑';
   }
 
-  function speak(txt){
+  // La voix est mise en file : une annonce n'écrase plus la précédente.
+  // `urgent` (arrivée, alerte de gabarit) passe devant tout le reste.
+  function speak(txt, urgent){
     if(!voiceOn || !('speechSynthesis' in window)) return;
     try{
+      if(urgent) window.speechSynthesis.cancel();
       var u=new SpeechSynthesisUtterance(txt); u.lang='fr-FR'; u.rate=1.02;
-      window.speechSynthesis.cancel(); window.speechSynthesis.speak(u);
+      window.speechSynthesis.speak(u);
     }catch(e){}
   }
 
@@ -1296,11 +1721,16 @@
       if(audioCtx && audioCtx.state==='suspended') audioCtx.resume();
     }catch(e){}
   }
-  // 'warn' = deux tons descendants ; 'urgent' = trois bips rapides plus aigus
+  // Le premier geste de l'utilisateur, quel qu'il soit, débloque l'audio :
+  // sans ça les navigateurs mobiles laissent le contexte suspendu.
+  ['pointerdown','touchend','keydown'].forEach(function(ev){
+    window.addEventListener(ev, unlockAudio, { once:true, passive:true });
+  });
+
   function alertTone(kind){
-    if(!voiceOn) return;           // le bouton 🔊 coupe aussi le bip
+    if(!voiceOn) return;
     unlockAudio();
-    if(!audioCtx) return;
+    if(!audioCtx || audioCtx.state!=='running') return;
     var seq = (kind==='urgent')
       ? [[1100,0,0.13],[1100,0.18,0.13],[1100,0.36,0.16]]
       : [[880,0,0.18],[620,0.20,0.28]];
@@ -1319,7 +1749,7 @@
     }catch(e){}
   }
 
-  // ---------- Surveillance des restrictions de gabarit pendant la navigation ----------
+  // ---------- Surveillance des restrictions pendant la navigation ----------
   var WARN_FAR=800, WARN_NEAR=300;
   function checkRestrictionsAhead(here){
     if(!routeWarnings.length) return;
@@ -1331,26 +1761,24 @@
         alertTone('urgent');
         setTimeout(function(){
           speak('Attention. '+o.kind+' limitée à '+o.lim.toFixed(2).replace('.',',')+' '+
-                (o.unit==='t'?'tonnes':'mètres')+'. Trois cents mètres.');
+                (o.unit==='t'?'tonnes':'mètres')+'. '+WARN_NEAR+' mètres.', true);
         }, 700);
-        toast('🚨 '+o.kind+' max '+o.lim.toFixed(2)+' '+o.unit+' à 300 m !',6000);
+        toast('🚨 '+o.kind+' max '+o.lim.toFixed(2)+' '+o.unit+' à '+WARN_NEAR+' m !',6000);
       } else if(d<=WARN_FAR && st<1){
         spokenWarn[i]=1;
         alertTone('warn');
         setTimeout(function(){
-          speak('Attention. Dans huit cents mètres, '+o.kind.toLowerCase()+' limitée à '+
-                o.lim.toFixed(2).replace('.',',')+' '+(o.unit==='t'?'tonnes':'mètres')+'.');
+          speak('Attention. Dans '+WARN_FAR+' mètres, '+o.kind.toLowerCase()+' limitée à '+
+                o.lim.toFixed(2).replace('.',',')+' '+(o.unit==='t'?'tonnes':'mètres')+'.', true);
         }, 600);
-        toast('⚠ '+o.kind+' max '+o.lim.toFixed(2)+' '+o.unit+' à 800 m',5000);
+        toast('⚠ '+o.kind+' max '+o.lim.toFixed(2)+' '+o.unit+' à '+WARN_FAR+' m',5000);
       } else if(d>WARN_FAR+250 && st>0){
         spokenWarn[i]=0; // ré-arme si on s'éloigne (demi-tour, recalcul)
       }
     });
   }
 
-  function flattenSteps(rt){
-    return (rt && rt.steps) ? rt.steps : [];
-  }
+  function flattenSteps(rt){ return (rt && rt.steps) ? rt.steps : []; }
 
   $('#startNav').addEventListener('click', startNav);
   $('#navQuit').addEventListener('click', stopNav);
@@ -1362,32 +1790,80 @@
     if(!voiceOn && 'speechSynthesis' in window) window.speechSynthesis.cancel();
   });
 
+  // ---------- Dimensionnement de la carte en mode navigation ----------
+  var mapEl=document.getElementById('map'), lastHd=null, contAngle=0;
+  function navSize(){
+    // Un carré de côté = diagonale de l'écran : quel que soit le cap, la carte
+    // couvre toujours toute la fenêtre après rotation. Aucun coin vide.
+    var d = Math.ceil(Math.hypot(window.innerWidth, window.innerHeight)) + 40;
+    document.body.style.setProperty('--navd', d+'px');
+  }
+  window.addEventListener('resize', function(){
+    if(!navActive) return;
+    navSize();
+    setTimeout(function(){ map.invalidateSize({animate:false}); }, 60);
+  });
+
+  function setMapRot(deg){
+    contAngle = deg;
+    mapEl.style.transform = deg ? 'rotate('+(-deg)+'deg)' : '';
+    document.body.style.setProperty('--maprot', deg+'deg');
+  }
+  function rotateHeadingUp(h){
+    if(h==null || isNaN(h)) return contAngle;
+    if(lastHd==null){ lastHd=h; setMapRot(h); }
+    else {
+      var dlt=h-lastHd; while(dlt>180)dlt-=360; while(dlt<-180)dlt+=360;
+      lastHd=h; setMapRot(contAngle+dlt);
+    }
+    return contAngle;
+  }
+  function resetRotation(){ lastHd=null; setMapRot(0); }
+
+  // Le centre de #map est placé à 68 % de la hauteur de l'écran : centrer la
+  // carte sur le véhicule suffit, la rotation se fait autour de ce point.
+  function panFollow(here){ map.panTo(here, {animate:true, duration:.5}); }
+
+  function navDot(counter){
+    var rot = (counter!=null && !isNaN(counter)) ? counter : 0;
+    return L.divIcon({className:'',iconSize:[22,22],iconAnchor:[11,11],
+      html:'<div class="navdot"><i style="transform:rotate('+rot+'deg)"></i></div>'});
+  }
+
+  var lastGpsWarn=0;
   function startNav(){
     if(!lastRoute || !routeCoords){ toast('Calculez d\'abord un itinéraire.'); return; }
     if(!navigator.geolocation){ toast('Géolocalisation non disponible sur cet appareil.'); return; }
     navSteps=flattenSteps(lastRoute);
     if(navSteps.length<2){ toast('Itinéraire trop court pour le guidage.'); return; }
-    navPtr=1; offCount=0; spokenFar={}; spokenNear={}; spokenExit={}; spokenWarn={};
-    navActive=true; following=true; document.body.classList.add('nav');
+    navPtr=1; navIdx=1; offCount=0;
+    spokenFar={}; spokenNear={}; spokenExit={}; spokenWarn={};
+    navActive=true; following=true;
+
+    navSize();
+    document.body.classList.add('nav');
+    map.invalidateSize({animate:false});
+    map.setZoom(16);
     $('#recenter').classList.remove('show');
     sheet.classList.remove('open');
-    map.setZoom(16); // un cran plus large pour compenser l'agrandissement lié à la rotation
-    mapEl.style.transformOrigin='50% '+(NAV_PUCK_Y*100)+'%'; // pivot sur le véhicule
+    resetRotation();
     requestWake();
-    unlockAudio(); // ce clic autorise le son (contrainte des navigateurs mobiles)
+    unlockAudio();
     if(navMarker){ map.removeLayer(navMarker); navMarker=null; }
-    // réveille la synthèse vocale (nécessite un geste utilisateur — ce clic)
-    speak('Navigation démarrée.');
+    speak('Navigation démarrée.', true);
     updateNavDisplay(null);
-    navWatch=navigator.geolocation.watchPosition(onNavPos, function(err){
-      toast('Signal GPS perdu…',1500);
+    navWatch=navigator.geolocation.watchPosition(onNavPos, function(){
+      var t=Date.now();
+      if(t-lastGpsWarn>20000){ lastGpsWarn=t; toast('Signal GPS perdu…',1500); }
     }, { enableHighAccuracy:true, maximumAge:1000, timeout:12000 });
   }
 
   function stopNav(){
-    navActive=false; following=true; document.body.classList.remove('nav');
-    $('#recenter').classList.remove('show');
+    navActive=false; following=true;
     resetRotation();
+    document.body.classList.remove('nav');
+    map.invalidateSize({animate:false});
+    $('#recenter').classList.remove('show');
     releaseWake();
     if(navWatch!=null){ navigator.geolocation.clearWatch(navWatch); navWatch=null; }
     if(navMarker){ map.removeLayer(navMarker); navMarker=null; }
@@ -1396,91 +1872,61 @@
     openSheet();
   }
 
-  function navDot(counter){
-    // counter = angle de contre-rotation pour que le véhicule pointe vers le haut
-    var rot = (counter!=null && !isNaN(counter)) ? counter : 0;
-    return L.divIcon({className:'',iconSize:[22,22],iconAnchor:[11,11],
-      html:'<div class="navdot"><i style="transform:rotate('+rot+'deg)"></i></div>'});
-  }
-
-  // Rotation « avant du véhicule vers le haut »
-  var mapEl=document.getElementById('map'), lastHd=null, contAngle=0;
-  var NAV_PUCK_Y=0.68; // position verticale du véhicule à l'écran (0=haut, 1=bas) : bas mais dégageant l'avant
-  function rotateHeadingUp(h){
-    if(h==null || isNaN(h)){ return contAngle; }
-    if(lastHd==null){ contAngle=h; lastHd=h; }
-    else { var dlt=h-lastHd; while(dlt>180)dlt-=360; while(dlt<-180)dlt+=360; contAngle+=dlt; lastHd=h; }
-    mapEl.style.transform='scale(1.55) rotate('+(-contAngle)+'deg)';
-    return contAngle;
-  }
-  function resetRotation(){
-    mapEl.style.transform=''; mapEl.style.transformOrigin=''; lastHd=null; contAngle=0;
-  }
-  // Centre la carte en plaçant le véhicule dans la partie basse de l'écran
-  function panFollow(here){
-    var size=map.getSize();
-    var offY=size.y*(NAV_PUCK_Y-0.5);
-    var pt=map.project(here, map.getZoom()).subtract([0, offY]);
-    map.panTo(map.unproject(pt, map.getZoom()), {animate:true, duration:.5});
-  }
-
   function onNavPos(pos){
     if(!navActive) return;
     var lat=pos.coords.latitude, lng=pos.coords.longitude, hd=pos.coords.heading;
     var here=L.latLng(lat,lng);
-    // vitesse instantanée
-    var sp = pos.coords.speed; // m/s ou null
+
+    var sp = pos.coords.speed;
     $('#navSpeed').textContent = (sp!=null && !isNaN(sp) && sp>=0) ? Math.round(sp*3.6)+' km/h' : '—';
-    // orientation heading-up (uniquement quand on suit la position)
+
     var counter = following ? rotateHeadingUp(hd) : contAngle;
-    // marqueur position : le véhicule pointe toujours vers le haut
     if(navMarker) navMarker.setLatLng(here).setIcon(navDot(counter));
     else navMarker=L.marker(here,{icon:navDot(counter),zIndexOffset:1000}).addTo(map);
     navLast=here;
     if(following) panFollow(here);
 
-    // alerte sonore à l'approche d'une restriction de gabarit
     checkRestrictionsAhead(here);
 
-    // hors itinéraire ?
-    var dRoute=distToRoute(lat,lng);
-    if(dRoute>60){
-      offCount++;
-      if(offCount>=3){
-        offCount=0; toast('<span class="spin"></span>Hors itinéraire — recalcul…',0);
-        pts.from={lat:lat,lng:lng,label:'Position actuelle'};
-        recalcFromHere();
-        return;
-      }
-    } else offCount=0;
-
-    // manœuvre cible
-    var step=navSteps[navPtr];
-    if(!step){ return; }
-    var loc=step.maneuver.location; // [lng,lat]
-    var target=L.latLng(loc[1],loc[0]);
-    var d=haversine(here,target);
-
-    // avancer si manœuvre franchie
-    if(d<25 && navPtr<navSteps.length-1){
-      navPtr++; step=navSteps[navPtr];
-      loc=step.maneuver.location; target=L.latLng(loc[1],loc[0]); d=haversine(here,target);
+    // Hors itinéraire ? Recherche fenêtrée autour de la position précédente
+    // sur la polyligne : coût constant, même sur un trajet de 500 km.
+    var near = routeXY ? nearestOn(routeXY, lat, lng, navIdx-40, navIdx+400) : null;
+    if(near){
+      navIdx = near.i;
+      if(near.d>60){
+        offCount++;
+        if(offCount>=3){
+          offCount=0; toast('<span class="spin"></span>Hors itinéraire — recalcul…',0);
+          pts.from={lat:lat,lng:lng,label:'Position actuelle'};
+          recalcFromHere();
+          return;
+        }
+      } else offCount=0;
     }
 
-    // arrivée
+    var step=navSteps[navPtr];
+    if(!step) return;
+    var loc=step.maneuver.location; // [lng,lat]
+    var target=L.latLng(loc[1],loc[0]);
+    var d=map.distance(here,target);
+
+    if(d<25 && navPtr<navSteps.length-1){
+      navPtr++; step=navSteps[navPtr];
+      loc=step.maneuver.location; target=L.latLng(loc[1],loc[0]); d=map.distance(here,target);
+    }
+
     if(navSteps[navPtr].maneuver.type==='arrive' && d<30){
       updateNavDisplay(0, maneuverFr(navSteps[navPtr]));
-      speak('Vous êtes arrivé à destination.');
+      speak('Vous êtes arrivé à destination.', true);
       toast('🏁 Arrivée.',3000);
       setTimeout(stopNav,1500);
       return;
     }
 
     var fr=maneuverFr(step);
-    updateNavDisplay(d, fr, remainingFrom(navPtr));
+    updateNavDisplay(d, fr, d + remainingFrom(navPtr));
 
-    // annonces vocales
-    var isExit = step.maneuver.type==='off ramp'; // sortie d'autoroute / voie rapide
+    var isExit = step.maneuver.type==='off ramp';
     if(isExit){
       if(!spokenExit[navPtr] && d<=800){ spokenExit[navPtr]=true; speak('Dans 800 mètres, '+fr.t.toLowerCase()); }
       if(!spokenFar[navPtr] && d<=250){ spokenFar[navPtr]=true; speak('Dans '+fmtKm(d)+', '+fr.t.toLowerCase()); }
@@ -1491,6 +1937,7 @@
     }
   }
 
+  // Distance restante après la manœuvre `ptr` (la distance jusqu'à elle est ajoutée par l'appelant)
   function remainingFrom(ptr){
     var rem=0;
     for(var i=ptr;i<navSteps.length;i++){ rem+=(navSteps[i].distance||0); }
@@ -1502,31 +1949,32 @@
     $('#navDist').textContent = d==null?'—':(d<1000?Math.round(d/10)*10+' m':fmtKm(d));
     if(remain!=null){
       $('#navRemain').textContent=fmtKm(remain);
-      // vitesse ~50 km/h estimée pour l'ETA restant
-      var secs = remain/ (50000/3600);
+      // ETA proportionnelle à la durée réelle de l'itinéraire, pas à une vitesse forfaitaire
+      var secs;
+      if(lastRoute && lastRoute.distance>0) secs = lastRoute.duration * (remain/lastRoute.distance);
+      else secs = remain / (50000/3600);
       $('#navEta').textContent=fmtDur(secs);
     }
   }
 
   function recalcFromHere(){
     if(!pts.from || !pts.to){ return; }
-    var p = ttKey ? tomtomFetch(routeType).catch(function(){ return osrmFetch(routeType); })
-                  : osrmFetch(routeType);
-    p.then(function(routes){
+    fetchRoutes(true).then(function(routes){
       hideToast();
       if(!routes || !routes.length){ toast('Recalcul impossible.'); return; }
-      // en cours de route on garde le meilleur trajet, sans proposer d'alternatives
       var rt=routes[0];
       altRoutes=[rt]; activeIdx=0;
       lastRoute=rt; routeCoords=rt.coords;
+      routeXY = buildXY(routeCoords);
+      navIdx=1;
       clearRouteLayers();
-      routeLayer=L.layerGroup([
-        L.polyline(routeCoords,{color:'#0b1220',weight:10,opacity:.6}),
-        L.polyline(routeCoords,{color:'#3b82f6',weight:6,opacity:1})
-      ]).addTo(map);
-      navSteps=flattenSteps(rt); navPtr=1; spokenFar={}; spokenNear={}; spokenExit={}; spokenWarn={};
-      checkHeights(rt.coords); // les restrictions du nouveau trajet
-      speak('Itinéraire recalculé.');
+      routeLayer = drawRoute(routeCoords);
+      navSteps=flattenSteps(rt); navPtr=1;
+      spokenFar={}; spokenNear={}; spokenExit={}; spokenWarn={};
+      routeWarnings=[]; warnLayer.clearLayers();
+      warnKey='';
+      checkHeights(rt.coords);
+      speak('Itinéraire recalculé.', true);
     }).catch(function(){ hideToast(); toast('Recalcul indisponible.'); });
   }
 

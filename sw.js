@@ -3,8 +3,8 @@
 //  - coquille de l'appli (index + libs) : "network-first" puis cache (toujours à jour si en ligne)
 //  - tuiles de carte : "cache-first" (les zones déjà consultées restent dispo hors-ligne)
 
-const SHELL_CACHE = 'cc-shell-v1';
-const TILE_CACHE  = 'cc-tiles-v1';
+const SHELL_CACHE = 'cc-shell-v2';
+const TILE_CACHE  = 'cc-tiles-v2';
 
 const SHELL_ASSETS = [
   './',
@@ -12,12 +12,23 @@ const SHELL_ASSETS = [
   './manifest.webmanifest',
   './icon-192.png',
   './icon-512.png',
+  './icon-512-maskable.png',
+  './apple-touch-icon.png',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js'
 ];
 
 // Hôtes dont on met les tuiles en cache pour l'usage hors-ligne
 const TILE_HOSTS = ['basemaps.cartocdn.com'];
+
+// Services en ligne : jamais interceptés, jamais mis en cache.
+// (api.tomtom.com contient la clé d'API dans l'URL : elle ne doit rien laisser sur le disque.)
+const DYNAMIC = [
+  'nominatim.openstreetmap.org',
+  'router.project-osrm.org',
+  'overpass-api.de',
+  'api.tomtom.com'
+];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
@@ -35,10 +46,19 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+// Ne met en cache que ce qui vaut la peine de l'être : réponse complète, statut 200,
+// même origine ou CORS explicite. Les 404 et les réponses opaques sont ignorés.
+function cacheable(res) {
+  return res && res.status === 200 && (res.type === 'basic' || res.type === 'cors');
+}
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
-  const url = new URL(req.url);
+
+  let url;
+  try { url = new URL(req.url); } catch (err) { return; }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
 
   // Tuiles de carte : cache-first (limité pour ne pas saturer le stockage)
   if (TILE_HOSTS.some((h) => url.hostname.endsWith(h))) {
@@ -48,32 +68,43 @@ self.addEventListener('fetch', (e) => {
         if (hit) return hit;
         try {
           const res = await fetch(req);
-          if (res && res.status === 200) {
-            cache.put(req, res.clone());
+          if (cacheable(res)) {
+            await cache.put(req, res.clone());
             trimCache(TILE_CACHE, 1200); // garde ~1200 tuiles récentes
           }
           return res;
         } catch (err) {
-          return hit || Response.error();
+          return Response.error();
         }
       })
     );
     return;
   }
 
-  // Ne pas intercepter les API dynamiques (itinéraire, recherche, POI, trafic)
-  const DYNAMIC = ['nominatim.openstreetmap.org','router.project-osrm.org','overpass-api.de','api.tomtom.com'];
-  if (DYNAMIC.some((h) => url.hostname.endsWith(h))) return; // passe directement au réseau
+  // Itinéraire, recherche, POI, trafic : réseau direct, sans interception
+  if (DYNAMIC.some((h) => url.hostname.endsWith(h))) return;
 
   // Coquille de l'appli : network-first, repli sur le cache
   e.respondWith(
     fetch(req)
       .then((res) => {
-        const copy = res.clone();
-        caches.open(SHELL_CACHE).then((c) => c.put(req, copy)).catch(() => {});
+        if (cacheable(res)) {
+          const copy = res.clone();
+          caches.open(SHELL_CACHE).then((c) => c.put(req, copy)).catch(() => {});
+        }
         return res;
       })
-      .catch(() => caches.match(req).then((hit) => hit || caches.match('./index.html')))
+      .catch(async () => {
+        const hit = await caches.match(req);
+        if (hit) return hit;
+        // Le repli sur la page ne vaut que pour une navigation : renvoyer du HTML
+        // à la place d'une icône ou d'un script ne ferait qu'ajouter une erreur.
+        if (req.mode === 'navigate') {
+          const shell = await caches.match('./index.html');
+          if (shell) return shell;
+        }
+        return Response.error();
+      })
   );
 });
 

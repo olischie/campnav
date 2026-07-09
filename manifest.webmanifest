@@ -1,14 +1,15 @@
 {
+  "id": "./",
   "name": "GPS Camping-Car",
   "short_name": "GPS Camping-Car",
-  "description": "Navigation pour camping-car : itinéraire, alertes de hauteur, aires et services, guidage vocal, favoris et trafic en direct.",
+  "description": "Navigation pour camping-car : itinéraire adapté au gabarit, alertes de hauteur, aires et services, guidage vocal, favoris et trafic en direct.",
   "lang": "fr",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#12161f",
-  "theme_color": "#12161f",
+  "background_color": "#eef1f6",
+  "theme_color": "#eef1f6",
   "icons": [
     { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },

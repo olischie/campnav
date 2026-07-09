@@ -13,9 +13,29 @@ Application web de navigation pensée pour les camping-cars, **optimisée mobile
 - **Favoris** et **profil véhicule** sauvegardés localement (persistants d'une session à l'autre).
 - **Trafic TomTom en direct** (optionnel, nécessite votre propre clé — voir plus bas).
 
+## 🚀 Publier sur GitHub Pages
+
+1. Créez un dépôt GitHub et déposez-y le contenu de ce dossier (au minimum `index.html`).
+2. Dans le dépôt : **Settings → Pages**.
+3. Sous *Build and deployment*, choisissez **Deploy from a branch**, branche `main`, dossier `/ (root)`, puis **Save**.
+4. Après une minute, votre appli est en ligne à l'adresse `https://<votre-utilisateur>.github.io/<nom-du-depot>/`.
+
+> Servir l'appli en **HTTPS** (ce que fait GitHub Pages) est important : c'est ce qui active correctement la **géolocalisation** et le **verrouillage d'écran** pendant la navigation, qui ne fonctionnent pas de façon fiable en ouverture locale `file://`.
 
 ### Astuce mobile
 Une fois la page ouverte sur votre téléphone, utilisez **« Ajouter à l'écran d'accueil »** : l'appli s'ouvre alors en plein écran, comme une application native.
+
+## 📱 Installer comme application (PWA)
+
+L'appli est une **PWA** : installable et utilisable hors-ligne, sans passer par l'App Store.
+
+**Sur iPhone / iPad (Safari)** : ouvrez la page, touchez **Partager** → **Sur l'écran d'accueil**. L'icône apparaît comme une vraie app et s'ouvre en plein écran.
+
+**Sur Android (Chrome)** : menu ⋮ → **Installer l'application** (ou la bannière proposée).
+
+**Mode hors-ligne** : un *service worker* met en cache la coquille de l'appli et les **tuiles de carte déjà consultées**. Les fonds de carte des zones que vous avez parcourues restent affichables sans réseau. En revanche, la recherche d'adresses, le calcul d'itinéraire, les POI et le trafic nécessitent une connexion (ce sont des services en ligne).
+
+> ⚠️ Le mode hors-ligne et l'installation ne fonctionnent qu'en **HTTPS** (GitHub Pages convient), pas en ouverture locale `file://`.
 
 ## 🚦 Trafic TomTom en direct (optionnel)
 

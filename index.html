@@ -10,6 +10,8 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="GPS Camping-Car">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%233b82f6'/%3E%3Cpath d='M32 12c-9 0-16 7-16 16 0 12 16 24 16 24s16-12 16-24c0-9-7-16-16-16z' fill='%23fff'/%3E%3Ccircle cx='32' cy='28' r='6' fill='%233b82f6'/%3E%3C/svg%3E">
 <title>GPS Camping-Car</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
@@ -412,6 +414,7 @@
         <button class="chip" data-cat="fuel">⛽ Carburant</button>
         <button class="chip" data-cat="food">🍽️ Restaurants</button>
         <button class="chip" data-cat="shop">🛒 Supermarchés</button>
+        <button class="chip" data-cat="tourism">🏛️ Sites touristiques</button>
       </div>
       <button class="btn" id="searchPoi">Chercher dans cette zone</button>
       <p class="hint">La recherche porte sur la portion de carte visible. Déplacez / dézoomez la carte puis relancez pour élargir.</p>
@@ -724,7 +727,14 @@
              q:['node["amenity"="restaurant"]','way["amenity"="restaurant"]',
                 'node["amenity"="fast_food"]','way["amenity"="fast_food"]'] },
     shop:  { emoji:'🛒', color:'#7c3aed', name:'Supermarché',
-             q:['node["shop"="supermarket"]','way["shop"="supermarket"]'] }
+             q:['node["shop"="supermarket"]','way["shop"="supermarket"]'] },
+    tourism:{ emoji:'🏛️', color:'#0d9488', name:'Site touristique',
+             q:['node["tourism"="attraction"]','way["tourism"="attraction"]',
+                'node["tourism"="museum"]','way["tourism"="museum"]',
+                'node["tourism"="viewpoint"]',
+                'node["historic"="castle"]','way["historic"="castle"]',
+                'node["historic"="monument"]','way["historic"="monument"]',
+                'node["historic"="ruins"]','way["historic"="ruins"]'] }
   };
   var activeCats = { aire:true };
   document.querySelectorAll('#poiChips .chip').forEach(function(ch){
@@ -755,6 +765,8 @@
           if(!lat||!lng) return;
           var cat=catOf(el.tags||{});
           if(!cat) return;
+          // un site touristique sans nom n'apporte rien : on l'ignore
+          if(cat==='tourism' && !(el.tags && el.tags.name)) return;
           items.push({lat:lat,lng:lng,cat:cat,name:(el.tags.name||POI[cat].name),tags:el.tags});
         });
         renderPois(items);
@@ -770,7 +782,19 @@
     if(t.amenity==='fuel') return 'fuel';
     if(t.amenity==='restaurant'||t.amenity==='fast_food') return 'food';
     if(t.shop==='supermarket') return 'shop';
+    if(t.tourism==='attraction'||t.tourism==='museum'||t.tourism==='viewpoint') return 'tourism';
+    if(t.historic==='castle'||t.historic==='monument'||t.historic==='ruins') return 'tourism';
     return null;
+  }
+  // Libellé plus précis pour les sites touristiques
+  function subLabel(cat,t){
+    if(cat!=='tourism') return POI[cat].name;
+    if(t.tourism==='museum') return 'Musée';
+    if(t.tourism==='viewpoint') return 'Point de vue';
+    if(t.historic==='castle') return 'Château';
+    if(t.historic==='monument') return 'Monument';
+    if(t.historic==='ruins') return 'Ruines';
+    return 'Site touristique';
   }
   function renderPois(items){
     var list=$('#poiList');
@@ -780,6 +804,7 @@
     items.sort(function(a,b){return a.d-b.d;});
     items.slice(0,60).forEach(function(it){
       var p=POI[it.cat];
+      var lbl=subLabel(it.cat, it.tags||{});
       var setDest=function(){
         setPoint('to', it.lat, it.lng, it.name);
         $('#toInp').value = it.name;
@@ -787,7 +812,7 @@
         sheet.classList.remove('open');
       };
       var mk=L.marker([it.lat,it.lng],{icon:poiIcon(p.emoji,p.color)})
-        .bindPopup('<b>'+p.emoji+' '+it.name+'</b><br>'+p.name+
+        .bindPopup('<b>'+p.emoji+' '+it.name+'</b><br>'+lbl+
           '<br><button class="popgo">🎯 Définir comme destination</button>')
         .addTo(poiLayer);
       mk.on('popupopen', function(e){
@@ -796,7 +821,7 @@
       });
       var row=document.createElement('div'); row.className='result';
       row.innerHTML='<div class="ico">'+p.emoji+'</div><div class="txt"><b>'+it.name+
-        '</b><small>'+p.name+' · à '+fmtKm(it.d)+'</small></div>'+
+        '</b><small>'+lbl+' · à '+fmtKm(it.d)+'</small></div>'+
         '<button class="go" data-act="go">Y aller</button>'+
         '<button class="go" data-act="fav" style="margin-left:6px">★</button>';
       row.querySelector('[data-act=go]').addEventListener('click', setDest);
@@ -820,16 +845,6 @@
       var coords=lastRoute.geometry.coordinates.map(function(p){return [p[1],p[0]];});
       checkHeights(coords);
     }
-  });
-
-  // ---------- Map tap to set points ----------
-  map.on('click', function(e){
-    var lat=e.latlng.lat, lng=e.latlng.lng;
-    var which = !pts.from ? 'from' : 'to';
-    reverse(lat,lng).then(function(lbl){
-      setPoint(which, lat, lng, lbl);
-      $('#'+which+'Inp').value = lbl;
-    });
   });
 
   // ---------- Geolocation ----------
@@ -922,7 +937,7 @@
   // ================= Recentrage / suivi =================
   $('#recenter').addEventListener('click', function(){
     following=true; this.classList.remove('show');
-    if(navLast){ map.setView(navLast, Math.max(map.getZoom(),17), {animate:true}); }
+    if(navLast){ if(map.getZoom()<16) map.setZoom(16); panFollow(navLast); }
   });
   map.on('dragstart', function(){
     if(navActive){ following=false; $('#recenter').classList.add('show'); }
@@ -1105,6 +1120,7 @@
     $('#recenter').classList.remove('show');
     sheet.classList.remove('open');
     map.setZoom(16); // un cran plus large pour compenser l'agrandissement lié à la rotation
+    mapEl.style.transformOrigin='50% '+(NAV_PUCK_Y*100)+'%'; // pivot sur le véhicule
     requestWake();
     if(navMarker){ map.removeLayer(navMarker); navMarker=null; }
     // réveille la synthèse vocale (nécessite un geste utilisateur — ce clic)
@@ -1136,6 +1152,7 @@
 
   // Rotation « avant du véhicule vers le haut »
   var mapEl=document.getElementById('map'), lastHd=null, contAngle=0;
+  var NAV_PUCK_Y=0.68; // position verticale du véhicule à l'écran (0=haut, 1=bas) : bas mais dégageant l'avant
   function rotateHeadingUp(h){
     if(h==null || isNaN(h)){ return contAngle; }
     if(lastHd==null){ contAngle=h; lastHd=h; }
@@ -1144,7 +1161,14 @@
     return contAngle;
   }
   function resetRotation(){
-    mapEl.style.transform=''; lastHd=null; contAngle=0;
+    mapEl.style.transform=''; mapEl.style.transformOrigin=''; lastHd=null; contAngle=0;
+  }
+  // Centre la carte en plaçant le véhicule dans la partie basse de l'écran
+  function panFollow(here){
+    var size=map.getSize();
+    var offY=size.y*(NAV_PUCK_Y-0.5);
+    var pt=map.project(here, map.getZoom()).subtract([0, offY]);
+    map.panTo(map.unproject(pt, map.getZoom()), {animate:true, duration:.5});
   }
 
   function onNavPos(pos){
@@ -1160,7 +1184,7 @@
     if(navMarker) navMarker.setLatLng(here).setIcon(navDot(counter));
     else navMarker=L.marker(here,{icon:navDot(counter),zIndexOffset:1000}).addTo(map);
     navLast=here;
-    if(following) map.panTo(here,{animate:true,duration:.5});
+    if(following) panFollow(here);
 
     // hors itinéraire ?
     var dRoute=distToRoute(lat,lng);
@@ -1248,6 +1272,14 @@
   }
 
 })();
+</script>
+<script>
+  // Enregistrement du service worker (mode hors-ligne + installation)
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function(){
+      navigator.serviceWorker.register('sw.js').catch(function(){ /* ignoré si non servi en HTTPS */ });
+    });
+  }
 </script>
 </body>
 </html>

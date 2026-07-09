@@ -79,6 +79,7 @@ Il n'est appelé que si au moins une dimension est renseignée : sans profil vé
 - Les alertes de gabarit reposent sur les données OpenStreetMap : elles sont incomplètes par endroits et **ne remplacent jamais les panneaux routiers**.
 - Une restriction portant sur un long tronçon est rattachée au point de votre trajet le plus proche du tronçon : sa position est approximative.
 - Les services publics utilisés (Nominatim, OSRM, Overpass) sont gratuits mais soumis à des **politiques d'usage raisonnable** : ils peuvent être lents ou limités en volume, et ne conviennent pas à un usage intensif ou commercial.
+- Overpass est interrogé sur **trois instances successives** (`overpass-api.de`, `overpass.kumi.systems`, `overpass.private.coffee`) : si l'une sature, l'appli bascule automatiquement sur la suivante. La pastille grise « contrôle du gabarit indisponible » signifie que **les trois** ont échoué — donc *non vérifié*, et non *rien à signaler*.
 - Le trafic TomTom s'affiche en surcouche ; il n'influence le calcul d'itinéraire que via le paramètre `traffic=true` du moteur TomTom.
 - En navigation, déplacer la carte à la main remet momentanément le **nord en haut** : le bouton **⌖ Recentrer** rétablit l'orientation dans le sens de marche.
 
@@ -90,7 +91,7 @@ Il n'est appelé que si au moins une dimension est renseignée : sans profil vé
 - [Nominatim](https://nominatim.org/) — géocodage
 - [Openrouteservice](https://openrouteservice.org/) — itinéraire poids-lourd libre (repli)
 - [OSRM](http://project-osrm.org/) — calcul d'itinéraire (dernier recours)
-- [Overpass API](https://overpass-api.de/) — points d'intérêt et restrictions de gabarit
+- [Overpass API](https://overpass-api.de/) — points d'intérêt et restrictions de gabarit (avec miroirs [kumi.systems](https://overpass.kumi.systems/) et [private.coffee](https://overpass.private.coffee/))
 - [TomTom](https://developer.tomtom.com/) — itinéraire poids-lourd, trafic en direct (optionnel)
 
 Merci de respecter les conditions d'utilisation de chacun de ces services.

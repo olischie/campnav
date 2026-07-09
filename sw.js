@@ -26,7 +26,10 @@ const TILE_HOSTS = ['basemaps.cartocdn.com'];
 const DYNAMIC = [
   'nominatim.openstreetmap.org',
   'router.project-osrm.org',
+  'api.openrouteservice.org',
   'overpass-api.de',
+  'overpass.kumi.systems',
+  'overpass.private.coffee',
   'api.tomtom.com'
 ];
 

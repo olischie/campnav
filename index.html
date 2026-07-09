@@ -460,7 +460,6 @@
       <div class="chips" id="routeTypes">
         <button class="chip on" data-rt="fastest">⚡ Le plus rapide</button>
         <button class="chip" data-rt="shortest">📏 Le plus court</button>
-        <button class="chip" data-rt="eco">🍃 Économique</button>
       </div>
       <div id="routeInfo" class="empty">Aucun itinéraire pour l'instant.</div>
       <button class="btn" id="startNav" style="display:none">▶ Démarrer la navigation</button>
@@ -472,16 +471,14 @@
       <label class="lb">Que cherchez-vous ?</label>
       <div class="chips" id="poiChips">
         <button class="chip on" data-cat="aire">🅿️ Aires</button>
-        <button class="chip" data-cat="dump">🚿 Vidange</button>
-        <button class="chip" data-cat="water">💧 Eau</button>
         <button class="chip" data-cat="camp">⛺ Campings</button>
         <button class="chip" data-cat="park">🅿 Parkings</button>
-        <button class="chip" data-cat="fuel">⛽ Carburant</button>
         <button class="chip" data-cat="food">🍽️ Restaurants</button>
         <button class="chip" data-cat="shop">🛒 Supermarchés</button>
         <button class="chip" data-cat="tourism">🏛️ Sites touristiques</button>
       </div>
       <button class="btn" id="searchPoi">Chercher dans cette zone</button>
+      <button class="btn ghost" id="clearPoi" style="display:none">Effacer les services de la carte</button>
       <p class="hint">La recherche porte sur la portion de carte visible, et ramène jusqu'à 30 lieux par catégorie. Déplacez / dézoomez la carte puis relancez pour élargir.</p>
       <div id="poiList"></div>
     </div>
@@ -850,7 +847,7 @@ if (typeof L === 'undefined') {
       default: return {type:'continue', modifier:'straight'};
     }
   }
-  var ORS_PREF = { fastest:'recommended', eco:'recommended', shortest:'shortest' };
+  var ORS_PREF = { fastest:'recommended', shortest:'shortest' };
 
   function orsFetch(withAlts){
     var restr={};
@@ -1066,9 +1063,6 @@ if (typeof L === 'undefined') {
     ch.addEventListener('click', function(){
       document.querySelectorAll('#routeTypes .chip').forEach(function(x){x.classList.remove('on');});
       ch.classList.add('on'); routeType=ch.dataset.rt;
-      if(!ttKey && routeType==='eco'){
-        toast('Le critère « économique » n\'existe que chez TomTom : le trajet recommandé est retenu.',4500);
-      }
       if(pts.from && pts.to) calcRoute();
     });
   });
@@ -1238,16 +1232,10 @@ if (typeof L === 'undefined') {
   var POI = {
     aire:  { emoji:'🅿️', color:'#2563eb', name:'Aire camping-car',
              q:['node["tourism"="caravan_site"]','way["tourism"="caravan_site"]'] },
-    dump:  { emoji:'🚿', color:'#0891b2', name:'Vidange / eaux usées',
-             q:['node["amenity"="sanitary_dump_station"]','way["amenity"="sanitary_dump_station"]'] },
-    water: { emoji:'💧', color:'#0ea5e9', name:'Point d\'eau',
-             q:['node["amenity"="drinking_water"]'] },
     camp:  { emoji:'⛺', color:'#16a34a', name:'Camping',
              q:['node["tourism"="camp_site"]','way["tourism"="camp_site"]'] },
     park:  { emoji:'🅿', color:'#64748b', name:'Parking',
              q:['node["amenity"="parking"]','way["amenity"="parking"]'] },
-    fuel:  { emoji:'⛽', color:'#d97706', name:'Carburant',
-             q:['node["amenity"="fuel"]','way["amenity"="fuel"]'] },
     food:  { emoji:'🍽️', color:'#e11d48', name:'Restaurant',
              q:['node["amenity"="restaurant"]','way["amenity"="restaurant"]',
                 'node["amenity"="fast_food"]','way["amenity"="fast_food"]'] },
@@ -1270,13 +1258,24 @@ if (typeof L === 'undefined') {
   });
 
   var poiAbort=null;
+
+  function clearPois(){
+    if(poiAbort){ poiAbort.abort(); poiAbort=null; }
+    poiLayer.clearLayers();
+    $('#poiList').innerHTML='';
+    $('#clearPoi').style.display='none';
+  }
+  $('#clearPoi').addEventListener('click', function(){
+    clearPois();
+    toast('Services effacés de la carte.',2000);
+  });
+
   $('#searchPoi').addEventListener('click', function(){
     var cats=Object.keys(activeCats).filter(function(k){return activeCats[k];});
     if(!cats.length){ toast('Choisissez au moins une catégorie.'); return; }
     var b=map.getBounds(), bb=[b.getSouth(),b.getWest(),b.getNorth(),b.getEast()];
     if((bb[2]-bb[0])*(bb[3]-bb[1])>0.8){ toast('Zone trop large — zoomez un peu puis relancez.'); return; }
-    poiLayer.clearLayers();
-    $('#poiList').innerHTML='';
+    clearPois();
     toast('<span class="spin"></span>Recherche des services…',0);
 
     // Un « out » par catégorie : la limite de 30 s'applique à chacune,
@@ -1315,11 +1314,8 @@ if (typeof L === 'undefined') {
 
   function catOf(t){
     if(t.tourism==='caravan_site') return 'aire';
-    if(t.amenity==='sanitary_dump_station') return 'dump';
-    if(t.amenity==='drinking_water') return 'water';
     if(t.tourism==='camp_site') return 'camp';
     if(t.amenity==='parking') return 'park';
-    if(t.amenity==='fuel') return 'fuel';
     if(t.amenity==='restaurant'||t.amenity==='fast_food') return 'food';
     if(t.shop==='supermarket') return 'shop';
     if(t.tourism==='attraction'||t.tourism==='museum'||t.tourism==='viewpoint') return 'tourism';
@@ -1338,6 +1334,7 @@ if (typeof L === 'undefined') {
   function renderPois(items){
     var list=$('#poiList');
     if(!items.length){ list.innerHTML='<div class="empty">Rien trouvé dans cette zone. Élargissez la carte et relancez.</div>'; return; }
+    $('#clearPoi').style.display='block';
     var center=map.getCenter();
     items.forEach(function(it){ it.d=map.distance(center,[it.lat,it.lng]); });
     items.sort(function(a,b){return a.d-b.d;});

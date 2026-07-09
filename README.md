@@ -6,11 +6,11 @@ Application web de navigation pensée pour les camping-cars, **optimisée mobile
 
 - **Carte interactive** plein écran (Leaflet + fonds CARTO), mode **jour / nuit**.
 - **Recherche d'adresses et de lieux** (Nominatim / OpenStreetMap).
-- **Itinéraire** point à point avec distance et durée estimées, alternatives sélectionnables.
+- **Itinéraire** point à point (le plus rapide ou le plus court) avec distance et durée estimées, alternatives sélectionnables.
 - **Profil du véhicule** (hauteur, poids, largeur, longueur) utilisé de deux façons :
   - avec une **clé TomTom** ou **Openrouteservice**, l'itinéraire est **calculé pour votre gabarit** (les passages trop bas ou limités en tonnage sont évités par le moteur) ;
   - dans tous les cas, les **restrictions rencontrées** le long du trajet sont repérées à partir des données OpenStreetMap et annoncées à l'approche.
-- **Aires & services** : aires de camping-car, vidange, points d'eau, campings, parkings, carburant, restaurants, supermarchés, sites touristiques (Overpass).
+- **Aires & services** : aires de camping-car, campings, parkings, restaurants, supermarchés, sites touristiques (Overpass). Les résultats s'effacent de la carte d'un bouton.
 - **Navigation guidée** : suivi GPS temps réel, carte orientée dans le sens de marche, recentrage, instructions virage par virage, **annonces vocales en français**, vitesse instantanée, verrouillage de l'écran, recalcul automatique en cas de sortie d'itinéraire.
 - **Favoris** et **profil véhicule** sauvegardés localement (persistants d'une session à l'autre).
 - **Trafic TomTom en direct** (optionnel, nécessite votre propre clé — voir plus bas).

@@ -470,7 +470,7 @@
     <div class="pane" id="pane-poi">
       <label class="lb">Que cherchez-vous ?</label>
       <div class="chips" id="poiChips">
-        <button class="chip on" data-cat="aire">🅿️ Aires</button>
+        <button class="chip" data-cat="aire">🅿️ Aires</button>
         <button class="chip" data-cat="camp">⛺ Campings</button>
         <button class="chip" data-cat="park">🅿 Parkings</button>
         <button class="chip" data-cat="food">🍽️ Restaurants</button>
@@ -1249,7 +1249,7 @@ if (typeof L === 'undefined') {
                 'node["historic"="monument"]','way["historic"="monument"]',
                 'node["historic"="ruins"]','way["historic"="ruins"]'] }
   };
-  var activeCats = { aire:true };
+  var activeCats = {}; // aucune catégorie cochée au démarrage
   document.querySelectorAll('#poiChips .chip').forEach(function(ch){
     ch.addEventListener('click', function(){
       var c=ch.dataset.cat; activeCats[c]=!activeCats[c];
@@ -1610,7 +1610,7 @@ if (typeof L === 'undefined') {
     if(pts.from && pts.to && !ttKey) calcRoute();
   });
 
-  function openTraffic(){
+  function openTraffic(silent){
     ttErrors=0; ttWarned=false;
     if(!ttLayer){
       ttLayer=L.tileLayer(ttUrl(), { maxZoom:22, opacity:0.9, zIndex:350 });
@@ -1629,7 +1629,7 @@ if (typeof L === 'undefined') {
     ttActive=true;
     $('#trafficBtn').classList.add('on');
     $('#trafficLegend').classList.add('show');
-    toast('🚦 Trafic en direct affiché.',2500);
+    if(!silent) toast('🚦 Trafic en direct affiché.',2500);
   }
 
   function closeTraffic(){
@@ -1641,6 +1641,10 @@ if (typeof L === 'undefined') {
 
   refreshKeyStates();
   vehHint();
+
+  // Trafic en direct dès le démarrage, dès lors qu'une clé TomTom est enregistrée.
+  // Sans clé, on ne réclame rien : le bouton 🚦 reste à disposition.
+  if(ttKey) openTraffic(true);
 
   // Ouvre le panneau au premier chargement pour rendre les onglets visibles
   setTimeout(openSheet, 400);

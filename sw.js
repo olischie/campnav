@@ -3,8 +3,8 @@
 //  - coquille de l'appli (index + libs) : "network-first" puis cache (toujours à jour si en ligne)
 //  - tuiles de carte : "cache-first" (les zones déjà consultées restent dispo hors-ligne)
 
-const SHELL_CACHE = 'cc-shell-v3';
-const TILE_CACHE  = 'cc-tiles-v3';
+const SHELL_CACHE = 'cc-shell-v4';
+const TILE_CACHE  = 'cc-tiles-v4';
 
 const SHELL_ASSETS = [
   './',

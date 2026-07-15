@@ -253,6 +253,9 @@
   #navTop .navtxt{flex:1;min-width:0;}
   #navTop .navdist{font-size:26px;font-weight:700;color:#fff;line-height:1.1;}
   #navTop .navinstr{font-size:15px;color:#dbe6ff;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  #navTop .navroad{font-size:12px;color:#a8c4ff;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.85;}
+  #navTop .navroad.flash{animation:roadFlash 1.4s ease;}
+  @keyframes roadFlash{0%{color:#fff;opacity:1;} 100%{color:#a8c4ff;opacity:.85;}}
   #navTop .navvoice{
     width:44px;height:44px;border-radius:12px;border:1px solid #1e40af;flex:none;
     background:#0b1220aa;color:#fff;font-size:18px;
@@ -384,6 +387,7 @@
   <div class="navtxt">
     <div class="navdist mono" id="navDist">—</div>
     <div class="navinstr" id="navInstr">Préparez-vous…</div>
+    <div class="navroad" id="navRoad"></div>
   </div>
   <div class="navbtns">
     <button class="navvoice" id="navVoice" aria-label="Voix">🔊</button>
@@ -1687,14 +1691,15 @@ if (typeof L === 'undefined') {
   });
 
   // Traduction des manœuvres en français + flèche
+  var DIR_FR = {
+    'left':'à gauche','right':'à droite',
+    'slight left':'légèrement à gauche','slight right':'légèrement à droite',
+    'sharp left':'franchement à gauche','sharp right':'franchement à droite',
+    'straight':'tout droit','uturn':'demi-tour'
+  };
   function maneuverFr(step){
     var m=step.maneuver||{}, type=m.type||'', mod=m.modifier||'', road=step.name||'';
-    var dir={
-      'left':'à gauche','right':'à droite',
-      'slight left':'légèrement à gauche','slight right':'légèrement à droite',
-      'sharp left':'franchement à gauche','sharp right':'franchement à droite',
-      'straight':'tout droit','uturn':'demi-tour'
-    }[mod]||'';
+    var dir=DIR_FR[mod]||'';
     var road_s = road? ' sur '+road : '';
     switch(type){
       case 'depart': return {t:'Départ'+road_s, a:'↑'};
@@ -1718,6 +1723,27 @@ if (typeof L === 'undefined') {
   function arrow(mod){
     return {'left':'←','right':'→','slight left':'↖','slight right':'↗',
       'sharp left':'⇐','sharp right':'⇒','straight':'↑','uturn':'⤺'}[mod]||'↑';
+  }
+
+  // Route actuellement suivie : nom de la rue si l'OSM en a un, sinon la
+  // direction prise au dernier changement de direction.
+  var currentRoadLabel='';
+  function roadLabel(step){
+    if(!step) return '';
+    if(step.name) return 'Vous roulez sur '+step.name;
+    var d = DIR_FR[(step.maneuver && step.maneuver.modifier)||''];
+    return d ? ('Direction : '+d) : '';
+  }
+  function updateCurrentRoad(label){
+    label = label || '';
+    if(label===currentRoadLabel) return;
+    currentRoadLabel = label;
+    var el=$('#navRoad');
+    if(!el) return;
+    el.textContent = label;
+    el.classList.remove('flash');
+    void el.offsetWidth; // relance l'animation même si la classe était déjà retirée
+    el.classList.add('flash');
   }
 
   // La voix est mise en file : une annonce n'écrase plus la précédente.
@@ -1747,6 +1773,38 @@ if (typeof L === 'undefined') {
   ['pointerdown','touchend','keydown'].forEach(function(ev){
     window.addEventListener(ev, unlockAudio, { once:true, passive:true });
   });
+
+  // ---------- Piste silencieuse : garde la voix audible pendant la navigation ----------
+  // Sur iPhone, la synthèse vocale (Web Speech) reste souvent inaudible tant qu'aucun
+  // <audio> n'est activement en lecture — notamment après un changement de sortie audio
+  // (câble ou Bluetooth branché vers une voiture). Cette piste silencieuse en boucle
+  // force iOS à garder une session audio active, ce qui rend les annonces vocales audibles.
+  var silentAudio=null;
+  function silentWavUrl(){
+    var rate=8000, n=rate; // 1 s de silence, régénérée en boucle par l'élément <audio>
+    var buf=new ArrayBuffer(44+n), v=new DataView(buf);
+    function ws(off,s){ for(var i=0;i<s.length;i++) v.setUint8(off+i, s.charCodeAt(i)); }
+    ws(0,'RIFF'); v.setUint32(4,36+n,true); ws(8,'WAVE');
+    ws(12,'fmt '); v.setUint32(16,16,true); v.setUint16(20,1,true);
+    v.setUint16(22,1,true); v.setUint32(24,rate,true); v.setUint32(28,rate,true);
+    v.setUint16(32,1,true); v.setUint16(34,8,true);
+    ws(36,'data'); v.setUint32(40,n,true);
+    for(var i=0;i<n;i++) v.setUint8(44+i,128); // silence en PCM 8 bits non signé
+    return URL.createObjectURL(new Blob([buf],{type:'audio/wav'}));
+  }
+  function startSilentLoop(){
+    if(silentAudio) return;
+    try{
+      silentAudio=new Audio(silentWavUrl());
+      silentAudio.loop=true; silentAudio.volume=0.01; silentAudio.playsInline=true;
+      silentAudio.play().catch(function(){});
+    }catch(e){}
+  }
+  function stopSilentLoop(){
+    if(!silentAudio) return;
+    try{ silentAudio.pause(); }catch(e){}
+    silentAudio=null;
+  }
 
   function alertTone(kind){
     if(!voiceOn) return;
@@ -1859,6 +1917,7 @@ if (typeof L === 'undefined') {
     if(navSteps.length<2){ toast('Itinéraire trop court pour le guidage.'); return; }
     navPtr=1; navIdx=1; offCount=0;
     spokenFar={}; spokenNear={}; spokenExit={}; spokenWarn={};
+    currentRoadLabel=''; updateCurrentRoad(roadLabel(navSteps[0]));
     navActive=true; following=true;
 
     navSize();
@@ -1870,6 +1929,7 @@ if (typeof L === 'undefined') {
     resetRotation();
     requestWake();
     unlockAudio();
+    startSilentLoop();
     if(navMarker){ map.removeLayer(navMarker); navMarker=null; }
     speak('Navigation démarrée.', true);
     updateNavDisplay(null);
@@ -1881,11 +1941,13 @@ if (typeof L === 'undefined') {
 
   function stopNav(){
     navActive=false; following=true;
+    updateCurrentRoad('');
     resetRotation();
     document.body.classList.remove('nav');
     map.invalidateSize({animate:false});
     $('#recenter').classList.remove('show');
     releaseWake();
+    stopSilentLoop();
     if(navWatch!=null){ navigator.geolocation.clearWatch(navWatch); navWatch=null; }
     if(navMarker){ map.removeLayer(navMarker); navMarker=null; }
     if('speechSynthesis' in window) window.speechSynthesis.cancel();
@@ -1932,6 +1994,7 @@ if (typeof L === 'undefined') {
     var d=map.distance(here,target);
 
     if(d<25 && navPtr<navSteps.length-1){
+      updateCurrentRoad(roadLabel(step)); // changement de direction : on vient d'emprunter cette route
       navPtr++; step=navSteps[navPtr];
       loc=step.maneuver.location; target=L.latLng(loc[1],loc[0]); d=map.distance(here,target);
     }
@@ -1991,6 +2054,7 @@ if (typeof L === 'undefined') {
       clearRouteLayers();
       routeLayer = drawRoute(routeCoords);
       navSteps=flattenSteps(rt); navPtr=1;
+      currentRoadLabel=''; updateCurrentRoad(roadLabel(navSteps[0]));
       spokenFar={}; spokenNear={}; spokenExit={}; spokenWarn={};
       routeWarnings=[]; warnLayer.clearLayers();
       warnKey='';

@@ -253,9 +253,6 @@
   #navTop .navtxt{flex:1;min-width:0;}
   #navTop .navdist{font-size:26px;font-weight:700;color:#fff;line-height:1.1;}
   #navTop .navinstr{font-size:15px;color:#dbe6ff;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-  #navTop .navroad{font-size:12px;color:#a8c4ff;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.85;}
-  #navTop .navroad.flash{animation:roadFlash 1.4s ease;}
-  @keyframes roadFlash{0%{color:#fff;opacity:1;} 100%{color:#a8c4ff;opacity:.85;}}
   #navTop .navvoice{
     width:44px;height:44px;border-radius:12px;border:1px solid #1e40af;flex:none;
     background:#0b1220aa;color:#fff;font-size:18px;
@@ -387,7 +384,6 @@
   <div class="navtxt">
     <div class="navdist mono" id="navDist">—</div>
     <div class="navinstr" id="navInstr">Préparez-vous…</div>
-    <div class="navroad" id="navRoad"></div>
   </div>
   <div class="navbtns">
     <button class="navvoice" id="navVoice" aria-label="Voix">🔊</button>
@@ -444,10 +440,9 @@
 
     <!-- ROUTE -->
     <div class="pane active" id="pane-route">
-      <label class="lb">Critère de calcul</label>
-      <div class="chips" id="routeTypes">
-        <button class="chip on" data-rt="fastest">⚡ Le plus rapide</button>
-        <button class="chip" data-rt="shortest">📏 Le plus court</button>
+      <label class="lb">Options d'itinéraire</label>
+      <div class="chips" id="routeOpts">
+        <button class="chip" id="tollChip" data-on="0">🚧 Éviter les péages</button>
       </div>
       <div id="routeInfo" class="empty">Aucun itinéraire pour l'instant.</div>
       <button class="btn" id="startNav" style="display:none">▶ Démarrer la navigation</button>
@@ -558,7 +553,7 @@ if (typeof L === 'undefined') {
   var routeLayer = null, poiLayer = null, warnLayer = null;
   var lastRoute = null;
   var routeCoords = null;
-  var altRoutes = [], altLayers = [], activeIdx = 0, routeType = 'fastest';
+  var avoidTolls = false;  // éviter les péages (option d'itinéraire)
   var routeWarnings = [], spokenWarn = {};
   // Navigation
   var navActive=false, navWatch=null, navSteps=[], navPtr=0, navMarker=null,
@@ -755,21 +750,22 @@ if (typeof L === 'undefined') {
   // Format interne unifié :
   // {coords:[[lat,lng]], distance, duration, steps:[{distance,name,maneuver:{type,modifier,location:[lng,lat],exit}}], engine, gabarit}
 
+  // OSRM ne sait ni équilibrer temps/distance finement ni éviter les péages :
+  // c'est le moteur de dernier recours. On demande un seul trajet.
   function osrmFetch(){
     var c = pts.from.lng+','+pts.from.lat+';'+pts.to.lng+','+pts.to.lat;
     var url='https://router.project-osrm.org/route/v1/driving/'+c+
-            '?overview=full&geometries=geojson&steps=true&alternatives=true';
+            '?overview=full&geometries=geojson&steps=true&alternatives=false';
     return fetch(url).then(function(r){return r.json();}).then(function(d){
       if(!d.routes || !d.routes.length) throw new Error('no route');
-      return d.routes.map(function(rt){
-        var steps=[];
-        (rt.legs||[]).forEach(function(leg){ (leg.steps||[]).forEach(function(s){ steps.push(s); }); });
-        return {
-          coords: rt.geometry.coordinates.map(function(p){ return [p[1],p[0]]; }),
-          distance: rt.distance, duration: rt.duration, steps: steps,
-          engine:'osrm', gabarit:false
-        };
-      });
+      var rt=d.routes[0];
+      var steps=[];
+      (rt.legs||[]).forEach(function(leg){ (leg.steps||[]).forEach(function(s){ steps.push(s); }); });
+      return {
+        coords: rt.geometry.coordinates.map(function(p){ return [p[1],p[0]]; }),
+        distance: rt.distance, duration: rt.duration, steps: steps,
+        engine:'osrm', gabarit:false, tollFree:false
+      };
     });
   }
 
@@ -804,13 +800,16 @@ if (typeof L === 'undefined') {
     return { mode:'truck', qs:qs+'&vehicleCommercial=false', gabarit:true };
   }
 
-  function tomtomFetch(rtType){
+  function tomtomFetch(){
     var v = ttVehicleQuery();
     var c = pts.from.lat+','+pts.from.lng+':'+pts.to.lat+','+pts.to.lng;
+    // routeType=fastest avec traffic=true tient déjà compte de la vitesse réelle,
+    // ce qui rapproche le résultat du meilleur compromis temps/distance.
     var url='https://api.tomtom.com/routing/1/calculateRoute/'+c+'/json'+
             '?key='+encodeURIComponent(ttKey)+
-            '&maxAlternatives=2&routeType='+(rtType||'fastest')+
+            '&maxAlternatives=0&routeType=fastest'+
             '&traffic=true&travelMode='+v.mode+v.qs+
+            (avoidTolls?'&avoid=tollRoads':'')+
             '&instructionsType=coded&language=fr-FR';
     return fetch(url).then(function(r){
       if(r.status===401 || r.status===403) throw new Error('tomtom-auth');
@@ -837,7 +836,7 @@ if (typeof L === 'undefined') {
           coords: coords,
           distance: rt.summary.lengthInMeters,
           duration: rt.summary.travelTimeInSeconds,
-          steps: steps, engine:'tomtom', gabarit:v.gabarit
+          steps: steps, engine:'tomtom', gabarit:v.gabarit, tollFree:avoidTolls
         };
       });
     });
@@ -864,26 +863,25 @@ if (typeof L === 'undefined') {
       default: return {type:'continue', modifier:'straight'};
     }
   }
-  var ORS_PREF = { fastest:'recommended', shortest:'shortest' };
-
-  function orsFetch(withAlts){
+  function orsFetch(){
     var restr={};
     if(vehicle.h!=null)   restr.height = vehicle.h;   // m
     if(vehicle.l!=null)   restr.width  = vehicle.l;   // m
     if(vehicle.len!=null) restr.length = vehicle.len; // m
     if(vehicle.w!=null)   restr.weight = vehicle.w;   // tonnes
 
+    var opts = { vehicle_type:'goods', profile_params:{ restrictions:restr } };
+    // « recommended » équilibre déjà temps et distance ; on ne demande qu'un trajet.
+    if(avoidTolls) opts.avoid_features = ['tollways'];
+
     var body = {
       coordinates: [[pts.from.lng, pts.from.lat],[pts.to.lng, pts.to.lat]],
       instructions: true, language: 'fr', units: 'm',
-      preference: ORS_PREF[routeType] || 'recommended',
+      preference: 'recommended',
       // « goods » plutôt que « hgv » : un camping-car subit les limites physiques,
       // pas les interdictions réservées au transport de marchandises lourd.
-      options: { vehicle_type:'goods', profile_params: { restrictions: restr } }
+      options: opts
     };
-    if(withAlts!==false){
-      body.alternative_routes = { target_count:2, weight_factor:1.6, share_factor:0.6 };
-    }
 
     return fetch('https://api.openrouteservice.org/v2/directions/driving-hgv/geojson', {
       method:'POST',
@@ -917,12 +915,18 @@ if (typeof L === 'undefined') {
           coords: g.map(function(c){ return [c[1], c[0]]; }),
           distance: pr.summary ? pr.summary.distance : 0,
           duration: pr.summary ? pr.summary.duration : 0,
-          steps: steps, engine:'ors', gabarit:true
+          steps: steps, engine:'ors', gabarit:true, tollFree:avoidTolls
         };
       });
     }).catch(function(e){
-      // Certaines combinaisons de restrictions refusent les alternatives : on réessaie sans.
-      if(withAlts!==false && e && /^ors 4\d\d$/.test(e.message)) return orsFetch(false);
+      // Si aucun trajet sans péage n'existe, ORS renvoie une 404 : on relance
+      // une fois en autorisant les péages, plutôt que de tomber sur OSRM.
+      if(avoidTolls && e && e.message==='ors 404'){
+        avoidTolls=false;
+        var chip=$('#tollChip'); if(chip){ chip.classList.remove('on'); chip.dataset.on='0'; }
+        toast('Aucun itinéraire sans péage trouvé — péages autorisés.',4000);
+        return orsFetch();
+      }
       throw e;
     });
   }
@@ -948,25 +952,13 @@ if (typeof L === 'undefined') {
   }
   function fetchRoutes(quiet){
     if(!ttKey) return fetchOrsOrOsrm(quiet);
-    return tomtomFetch(routeType).catch(function(e){
+    return tomtomFetch().catch(function(e){
       if(!quiet){
         if(e && e.message==='tomtom-auth') toast('Clé TomTom refusée — passage au moteur suivant.',4000);
         else toast('TomTom indisponible — passage au moteur suivant.',3000);
       }
       return fetchOrsOrOsrm(true);
     });
-  }
-
-  // OSRM optimise toujours le temps : on choisit l'alternative
-  // qui correspond le mieux au critère demandé. TomTom et ORS le font eux-mêmes.
-  function pickByType(rs){
-    var bi=0, i;
-    if(routeType==='shortest'){
-      for(i=0;i<rs.length;i++) if(rs[i].distance<rs[bi].distance) bi=i;
-    } else {
-      for(i=0;i<rs.length;i++) if(rs[i].duration<rs[bi].duration) bi=i;
-    }
-    return bi;
   }
 
   function calcRoute(){
@@ -977,33 +969,12 @@ if (typeof L === 'undefined') {
     fetchRoutes(false).then(function(routes){
       hideToast();
       if(!routes || !routes.length){ toast('Aucun itinéraire routier trouvé.'); return; }
-      altRoutes = routes;
-      labelRoutes(altRoutes);
-      selectRoute(routes[0].engine==='osrm' ? pickByType(routes) : 0, true);
+      showRoute(routes[0], true);
     }).catch(function(){ hideToast(); toast('Service d\'itinéraire indisponible. Réessayez dans un instant.'); });
-  }
-
-  // Étiquette « le plus rapide » / « le plus court » parmi les alternatives
-  function labelRoutes(rs){
-    if(!rs.length) return;
-    var fastest=0, shortest=0;
-    rs.forEach(function(r,i){
-      if(r.duration < rs[fastest].duration) fastest=i;
-      if(r.distance < rs[shortest].distance) shortest=i;
-    });
-    rs.forEach(function(r,i){
-      var tags=[];
-      if(i===fastest) tags.push('⚡ Le plus rapide');
-      if(i===shortest && shortest!==fastest) tags.push('📏 Le plus court');
-      if(i===shortest && shortest===fastest) tags.push('📏 et le plus court');
-      r.label = tags.length ? tags.join(' · ') : 'Alternative';
-    });
   }
 
   function clearRouteLayers(){
     if(routeLayer){ map.removeLayer(routeLayer); routeLayer=null; }
-    altLayers.forEach(function(l){ map.removeLayer(l); });
-    altLayers=[];
   }
 
   function drawRoute(coords){
@@ -1014,18 +985,10 @@ if (typeof L === 'undefined') {
   }
 
   // Trace toutes les alternatives (gris) puis la sélectionnée (bleu, au-dessus)
-  function selectRoute(idx, fit){
-    if(!altRoutes[idx]) return;
-    activeIdx=idx;
+  function showRoute(rt, fit){
+    if(!rt) return;
     clearRouteLayers();
     warnLayer.clearLayers();
-    altRoutes.forEach(function(r,i){
-      if(i===idx) return;
-      var l=L.polyline(r.coords,{color:'#8b95ab',weight:5,opacity:.55,dashArray:'6,7'}).addTo(map);
-      l.on('click', function(){ selectRoute(i,false); });
-      altLayers.push(l);
-    });
-    var rt=altRoutes[idx];
     lastRoute=rt; routeCoords=rt.coords;
     routeXY = buildXY(routeCoords);
     navIdx = 1;
@@ -1057,31 +1020,31 @@ if (typeof L === 'undefined') {
   function renderRouteInfo(){
     var el=$('#routeInfo'); el.className='';
     el.innerHTML='';
-    altRoutes.forEach(function(r,i){
-      var row=document.createElement('div');
-      row.className='result'+(i===activeIdx?' routesel':'');
-      row.innerHTML='<div class="ico">'+(i===activeIdx?'🔵':'⚪')+'</div>'+
-        '<div class="txt"><b>'+fmtKm(r.distance)+' · '+fmtDur(r.duration)+'</b>'+
-        '<small>'+esc(r.label)+'</small></div>';
-      row.addEventListener('click', function(){ selectRoute(i,false); });
-      el.appendChild(row);
-    });
+    if(!lastRoute) return;
+    var sub = avoidTolls ? 'Sans péage' : 'Trajet le plus adapté';
+    if(avoidTolls && lastRoute.tollFree===false) sub = 'Péage inévitable sur ce trajet';
+    var row=document.createElement('div');
+    row.className='result routesel';
+    row.innerHTML='<div class="ico">🔵</div>'+
+      '<div class="txt"><b>'+fmtKm(lastRoute.distance)+' · '+fmtDur(lastRoute.duration)+'</b>'+
+      '<small>'+esc(sub)+'</small></div>';
+    el.appendChild(row);
     var note=document.createElement('p'); note.className='hint';
-    note.textContent = (altRoutes.length>1
-      ? 'Touchez un itinéraire pour le choisir'
-      : 'Un seul itinéraire trouvé') + ' (' + engineLabel() + ').';
+    note.textContent = 'Itinéraire calculé ('+engineLabel()+').';
     el.appendChild(note);
     $('#startNav').style.display='block';
     $('#clearRoute').style.display='block';
   }
 
-  // ---------- Sélecteur de critère d'itinéraire ----------
-  document.querySelectorAll('#routeTypes .chip').forEach(function(ch){
-    ch.addEventListener('click', function(){
-      document.querySelectorAll('#routeTypes .chip').forEach(function(x){x.classList.remove('on');});
-      ch.classList.add('on'); routeType=ch.dataset.rt;
-      if(pts.from && pts.to) calcRoute();
-    });
+  // ---------- Interrupteur « éviter les péages » ----------
+  $('#tollChip').addEventListener('click', function(){
+    avoidTolls=!avoidTolls;
+    this.classList.toggle('on', avoidTolls);
+    this.dataset.on = avoidTolls?'1':'0';
+    if(!ttKey && !orsKey && avoidTolls){
+      toast('L\'évitement des péages nécessite une clé TomTom ou Openrouteservice (🔑).',4500);
+    }
+    if(pts.from && pts.to) calcRoute();
   });
 
   $('#clearRoute').addEventListener('click', clearRoute);
@@ -1091,7 +1054,7 @@ if (typeof L === 'undefined') {
     warnLayer.clearLayers();
     if(warnAbort){ warnAbort.abort(); warnAbort=null; }
     lastRoute=null; routeCoords=null; routeXY=null; snapXY=null;
-    altRoutes=[]; activeIdx=0; routeWarnings=[];
+    routeWarnings=[];
     $('#dash').classList.remove('show');
     setLamp('off','n/c');
     var el=$('#routeInfo'); el.className='empty'; el.textContent='Aucun itinéraire pour l\'instant.';
@@ -1691,15 +1654,14 @@ if (typeof L === 'undefined') {
   });
 
   // Traduction des manœuvres en français + flèche
-  var DIR_FR = {
-    'left':'à gauche','right':'à droite',
-    'slight left':'légèrement à gauche','slight right':'légèrement à droite',
-    'sharp left':'franchement à gauche','sharp right':'franchement à droite',
-    'straight':'tout droit','uturn':'demi-tour'
-  };
   function maneuverFr(step){
     var m=step.maneuver||{}, type=m.type||'', mod=m.modifier||'', road=step.name||'';
-    var dir=DIR_FR[mod]||'';
+    var dir={
+      'left':'à gauche','right':'à droite',
+      'slight left':'légèrement à gauche','slight right':'légèrement à droite',
+      'sharp left':'franchement à gauche','sharp right':'franchement à droite',
+      'straight':'tout droit','uturn':'demi-tour'
+    }[mod]||'';
     var road_s = road? ' sur '+road : '';
     switch(type){
       case 'depart': return {t:'Départ'+road_s, a:'↑'};
@@ -1723,27 +1685,6 @@ if (typeof L === 'undefined') {
   function arrow(mod){
     return {'left':'←','right':'→','slight left':'↖','slight right':'↗',
       'sharp left':'⇐','sharp right':'⇒','straight':'↑','uturn':'⤺'}[mod]||'↑';
-  }
-
-  // Route actuellement suivie : nom de la rue si l'OSM en a un, sinon la
-  // direction prise au dernier changement de direction.
-  var currentRoadLabel='';
-  function roadLabel(step){
-    if(!step) return '';
-    if(step.name) return 'Vous roulez sur '+step.name;
-    var d = DIR_FR[(step.maneuver && step.maneuver.modifier)||''];
-    return d ? ('Direction : '+d) : '';
-  }
-  function updateCurrentRoad(label){
-    label = label || '';
-    if(label===currentRoadLabel) return;
-    currentRoadLabel = label;
-    var el=$('#navRoad');
-    if(!el) return;
-    el.textContent = label;
-    el.classList.remove('flash');
-    void el.offsetWidth; // relance l'animation même si la classe était déjà retirée
-    el.classList.add('flash');
   }
 
   // La voix est mise en file : une annonce n'écrase plus la précédente.
@@ -1773,38 +1714,6 @@ if (typeof L === 'undefined') {
   ['pointerdown','touchend','keydown'].forEach(function(ev){
     window.addEventListener(ev, unlockAudio, { once:true, passive:true });
   });
-
-  // ---------- Piste silencieuse : garde la voix audible pendant la navigation ----------
-  // Sur iPhone, la synthèse vocale (Web Speech) reste souvent inaudible tant qu'aucun
-  // <audio> n'est activement en lecture — notamment après un changement de sortie audio
-  // (câble ou Bluetooth branché vers une voiture). Cette piste silencieuse en boucle
-  // force iOS à garder une session audio active, ce qui rend les annonces vocales audibles.
-  var silentAudio=null;
-  function silentWavUrl(){
-    var rate=8000, n=rate; // 1 s de silence, régénérée en boucle par l'élément <audio>
-    var buf=new ArrayBuffer(44+n), v=new DataView(buf);
-    function ws(off,s){ for(var i=0;i<s.length;i++) v.setUint8(off+i, s.charCodeAt(i)); }
-    ws(0,'RIFF'); v.setUint32(4,36+n,true); ws(8,'WAVE');
-    ws(12,'fmt '); v.setUint32(16,16,true); v.setUint16(20,1,true);
-    v.setUint16(22,1,true); v.setUint32(24,rate,true); v.setUint32(28,rate,true);
-    v.setUint16(32,1,true); v.setUint16(34,8,true);
-    ws(36,'data'); v.setUint32(40,n,true);
-    for(var i=0;i<n;i++) v.setUint8(44+i,128); // silence en PCM 8 bits non signé
-    return URL.createObjectURL(new Blob([buf],{type:'audio/wav'}));
-  }
-  function startSilentLoop(){
-    if(silentAudio) return;
-    try{
-      silentAudio=new Audio(silentWavUrl());
-      silentAudio.loop=true; silentAudio.volume=0.01; silentAudio.playsInline=true;
-      silentAudio.play().catch(function(){});
-    }catch(e){}
-  }
-  function stopSilentLoop(){
-    if(!silentAudio) return;
-    try{ silentAudio.pause(); }catch(e){}
-    silentAudio=null;
-  }
 
   function alertTone(kind){
     if(!voiceOn) return;
@@ -1917,7 +1826,6 @@ if (typeof L === 'undefined') {
     if(navSteps.length<2){ toast('Itinéraire trop court pour le guidage.'); return; }
     navPtr=1; navIdx=1; offCount=0;
     spokenFar={}; spokenNear={}; spokenExit={}; spokenWarn={};
-    currentRoadLabel=''; updateCurrentRoad(roadLabel(navSteps[0]));
     navActive=true; following=true;
 
     navSize();
@@ -1929,7 +1837,6 @@ if (typeof L === 'undefined') {
     resetRotation();
     requestWake();
     unlockAudio();
-    startSilentLoop();
     if(navMarker){ map.removeLayer(navMarker); navMarker=null; }
     speak('Navigation démarrée.', true);
     updateNavDisplay(null);
@@ -1941,13 +1848,11 @@ if (typeof L === 'undefined') {
 
   function stopNav(){
     navActive=false; following=true;
-    updateCurrentRoad('');
     resetRotation();
     document.body.classList.remove('nav');
     map.invalidateSize({animate:false});
     $('#recenter').classList.remove('show');
     releaseWake();
-    stopSilentLoop();
     if(navWatch!=null){ navigator.geolocation.clearWatch(navWatch); navWatch=null; }
     if(navMarker){ map.removeLayer(navMarker); navMarker=null; }
     if('speechSynthesis' in window) window.speechSynthesis.cancel();
@@ -1994,7 +1899,6 @@ if (typeof L === 'undefined') {
     var d=map.distance(here,target);
 
     if(d<25 && navPtr<navSteps.length-1){
-      updateCurrentRoad(roadLabel(step)); // changement de direction : on vient d'emprunter cette route
       navPtr++; step=navSteps[navPtr];
       loc=step.maneuver.location; target=L.latLng(loc[1],loc[0]); d=map.distance(here,target);
     }
@@ -2047,14 +1951,12 @@ if (typeof L === 'undefined') {
       hideToast();
       if(!routes || !routes.length){ toast('Recalcul impossible.'); return; }
       var rt=routes[0];
-      altRoutes=[rt]; activeIdx=0;
       lastRoute=rt; routeCoords=rt.coords;
       routeXY = buildXY(routeCoords);
       navIdx=1;
       clearRouteLayers();
       routeLayer = drawRoute(routeCoords);
       navSteps=flattenSteps(rt); navPtr=1;
-      currentRoadLabel=''; updateCurrentRoad(roadLabel(navSteps[0]));
       spokenFar={}; spokenNear={}; spokenExit={}; spokenWarn={};
       routeWarnings=[]; warnLayer.clearLayers();
       warnKey='';

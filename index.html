@@ -662,9 +662,9 @@ if (typeof L === 'undefined') {
     tileLayer.bringToBack();
     // Chrome sombre + couleur de barre système selon le fond choisi
     document.body.classList.toggle('light', !b.dark);
-    if(themeMeta) themeMeta.setAttribute('content', b.dark ? '#12161f' : '#eef1f6');
+    var meta = document.getElementById('themeColorMeta');
+    if(meta) meta.setAttribute('content', b.dark ? '#12161f' : '#eef1f6');
   }
-  var themeMeta = $('#themeColorMeta');
   document.body.classList.add('light'); // fond clair par défaut
   applyTiles();
   poiLayer = L.layerGroup().addTo(map);

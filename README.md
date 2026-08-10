@@ -11,7 +11,7 @@ Application web de navigation pensée pour les camping-cars, **optimisée mobile
   - avec une **clé TomTom** ou **Openrouteservice**, l'itinéraire est **calculé pour votre gabarit** (les passages trop bas ou limités en tonnage sont évités par le moteur) ;
   - dans tous les cas, les **restrictions rencontrées** le long du trajet sont repérées à partir des données OpenStreetMap et annoncées à l'approche.
 - **Aires & services** : aires de camping-car, campings, parkings, restaurants, supermarchés, sites touristiques (Overpass). Les résultats s'effacent de la carte d'un bouton.
-- **Navigation guidée** : suivi GPS temps réel, carte orientée dans le sens de marche, recentrage, instructions virage par virage, **annonces vocales en français**, vitesse instantanée, verrouillage de l'écran, recalcul automatique en cas de sortie d'itinéraire.
+- **Navigation guidée** : suivi GPS temps réel, carte orientée dans le sens de marche, recentrage, instructions virage par virage, **annonces vocales en français**, **compteur de vitesse et limite en vigueur** (en bas à gauche, l'anneau passe au rouge en cas de dépassement), verrouillage de l'écran, recalcul automatique en cas de sortie d'itinéraire.
 - **Favoris** et **profil véhicule** sauvegardés localement (persistants d'une session à l'autre).
 - **Trafic TomTom en direct** (optionnel, nécessite votre propre clé — voir plus bas).
 
@@ -41,7 +41,7 @@ L'appli est une **PWA** : installable et utilisable hors-ligne, sans passer par 
 
 ## 🔑 Moteurs d'itinéraire
 
-Le bouton **🔑** ouvre le panneau des moteurs. L'appli les essaie **dans cet ordre**, en descendant d'un cran à chaque échec (clé refusée, quota atteint, service indisponible) :
+L'onglet **Options** (à droite des Favoris) réunit l'évitement des péages, le mode jour/nuit et les clés d'activation. L'appli les essaie **dans cet ordre**, en descendant d'un cran à chaque échec (clé refusée, quota atteint, service indisponible) :
 
 | Rang | Moteur | Gabarit | Trafic | Clé |
 |---|---|---|---|---|
@@ -57,7 +57,7 @@ Les dimensions du profil véhicule partent dans la requête (`travelMode=truck`,
 
 1. Compte gratuit sur [developer.tomtom.com](https://developer.tomtom.com/) — **aucune carte bancaire requise**.
 2. Dans *My Dashboard*, copiez votre clé d'API.
-3. Touchez **🔑** (ou **🚦**), collez la clé. Elle est vérifiée une fois, puis conservée.
+3. Dans l'onglet **Options**, collez la clé sous « TomTom ». Elle est vérifiée une fois, puis conservée.
 
 ### Openrouteservice (repli)
 

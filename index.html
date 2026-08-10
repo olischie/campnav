@@ -145,9 +145,9 @@
   .grip .bar{width:44px;height:5px;border-radius:3px;background:var(--line);}
   .tabs{display:flex; gap:6px; padding:2px 12px 10px; flex:none;}
   .tab{
-    flex:1; text-align:center; padding:11px 6px; border-radius:12px;
+    flex:1; text-align:center; padding:11px 4px; border-radius:12px;
     background:transparent; border:1px solid var(--line); color:var(--muted);
-    font-size:13px; font-weight:600;
+    font-size:13px; font-weight:600; white-space:nowrap;
   }
   .tab.active{background:var(--blue); border-color:var(--blue); color:#fff;}
   .panes{overflow-y:auto; padding:4px 14px 20px; -webkit-overflow-scrolling:touch;}
@@ -237,8 +237,7 @@
   }
 
   /* ---------- Navigation mode ---------- */
-  body.nav #top, body.nav .fabs, body.nav #dash, body.nav #sheet,
-  body.nav #keyPanel{ display:none !important; }
+  body.nav #top, body.nav .fabs, body.nav #dash, body.nav #sheet{ display:none !important; }
   #navTop{
     position:absolute; z-index:800; left:10px; right:10px; top:calc(10px + var(--safe-t));
     background:var(--blue-d); border:1px solid #1e40af; border-radius:16px;
@@ -286,6 +285,38 @@
   #navTop .navbtns{display:flex;flex-direction:column;gap:6px;flex:none;}
   #navTop .navbtns .navvoice{width:40px;height:40px;}
 
+  /* Compteur de vitesse + limite, en bas à gauche */
+  #speedo{
+    position:absolute; z-index:805; left:12px;
+    bottom:calc(84px + var(--safe-b));
+    display:none; align-items:flex-end; gap:8px;
+  }
+  body.nav #speedo{ display:flex; }
+  #speedo .gauge{
+    width:74px; height:74px; border-radius:50%;
+    background:var(--panel); border:1px solid var(--line);
+    box-shadow:0 6px 18px rgba(0,0,0,.5);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+  }
+  #speedo .gauge.over{ border-color:var(--red); box-shadow:0 0 0 2px var(--red),0 6px 18px rgba(0,0,0,.5); }
+  #speedo .gval{ font-size:26px; font-weight:700; line-height:1; }
+  #speedo .gunit{ font-size:9px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin-top:2px; }
+  /* Panneau de limitation façon européenne : disque blanc, anneau rouge */
+  #speedo .limit{
+    width:56px; height:56px; border-radius:50%;
+    background:#fff; border:6px solid var(--red);
+    display:none; align-items:center; justify-content:center;
+    box-shadow:0 6px 18px rgba(0,0,0,.5);
+  }
+  #speedo .limit.show{ display:flex; }
+  #speedo .limit span{ color:#111; font-size:21px; font-weight:800; line-height:1; }
+  @media (max-width:400px){
+    #speedo .gauge{ width:66px; height:66px; }
+    #speedo .gval{ font-size:23px; }
+    #speedo .limit{ width:50px; height:50px; border-width:5px; }
+    #speedo .limit span{ font-size:19px; }
+  }
+
   /* ---------- Thème clair (jour) ---------- */
   body.light{
     --bg:#eef1f6; --panel:#ffffff; --panel-2:#f1f4f9; --line:#d3dae6;
@@ -296,22 +327,34 @@
   body.light .suggest, body.light #navBottom{ box-shadow:0 6px 20px rgba(30,45,80,.14); }
   body.light #toast{ background:#ffffffee; color:#1a2233; }
 
-  /* Bouton Trafic TomTom + panneau des clés d'API */
   #trafficBtn.on{ background:var(--blue); border-color:var(--blue); color:#fff; }
-  #keyPanel{
-    position:absolute; z-index:900; left:16px; right:16px;
-    top:calc(8% + var(--safe-t)); max-height:82dvh; overflow-y:auto;
-    background:var(--panel); border:1px solid var(--line);
-    border-radius:18px; padding:18px; display:none; box-shadow:0 20px 50px rgba(0,0,0,.6);
+
+  /* Onglet Options */
+  #pane-opt h4{ margin:22px 0 4px; font-size:14px; }
+  #pane-opt p{ font-size:12px; color:var(--muted); line-height:1.5; margin:8px 0; }
+  #pane-opt a{ color:var(--blue); }
+  #pane-opt .sep{ height:1px; background:var(--line); margin:22px 0 4px; }
+  #pane-opt .state{ font-size:12px; margin:6px 0 0; }
+  #pane-opt .state.on{ color:var(--green); }
+  /* Rangée interrupteur (péages, jour/nuit) */
+  .optrow{
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    padding:14px 0; border-top:1px solid var(--line);
   }
-  #keyPanel.show{ display:block; }
-  #keyPanel h3{ margin:0 0 8px; font-size:16px; }
-  #keyPanel h4{ margin:20px 0 4px; font-size:14px; }
-  #keyPanel p{ font-size:12px; color:var(--muted); line-height:1.5; margin:8px 0; }
-  #keyPanel a{ color:var(--blue); }
-  #keyPanel .sep{ height:1px; background:var(--line); margin:22px 0 4px; }
-  #keyPanel .state{ font-size:12px; margin:6px 0 0; }
-  #keyPanel .state.on{ color:var(--green); }
+  .optrow:first-of-type{ border-top:0; }
+  .optrow .lbl{ font-size:15px; }
+  .optrow .lbl small{ display:block; color:var(--muted); font-size:12px; margin-top:2px; }
+  .toggle{
+    flex:none; width:52px; height:30px; border-radius:16px; border:1px solid var(--line);
+    background:var(--panel-2); position:relative; transition:background .15s;
+  }
+  .toggle::after{
+    content:''; position:absolute; top:2px; left:2px; width:24px; height:24px;
+    border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.4);
+    transition:transform .15s;
+  }
+  .toggle.on{ background:var(--blue); border-color:var(--blue); }
+  .toggle.on::after{ transform:translateX(22px); }
   /* Bouton dans les popups de service */
   .leaflet-popup-content .popgo{
     margin-top:8px; width:100%; border:0; border-radius:8px; padding:9px 10px;
@@ -352,32 +395,6 @@
 
 <div id="map"></div>
 
-<div id="keyPanel">
-  <h3>🔑 Moteurs d'itinéraire</h3>
-  <p>L'appli essaie les moteurs dans cet ordre : <b>TomTom</b> (gabarit + trafic), puis <b>Openrouteservice</b> (gabarit, sans trafic), puis <b>OSRM</b> (voiture, dernier recours). Chaque clé est facultative.</p>
-
-  <h4>🚦 TomTom</h4>
-  <p>Trafic en direct, et itinéraire calculé pour votre gabarit sans vous appliquer les interdictions réservées aux poids lourds. Clé gratuite sur <a href="https://developer.tomtom.com/" target="_blank" rel="noopener">developer.tomtom.com</a>.</p>
-  <input class="inp" id="keyInput" type="password" placeholder="Clé TomTom"
-         autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
-  <p class="state" id="ttState"></p>
-  <button class="btn" id="keySave">Enregistrer la clé TomTom</button>
-  <button class="btn ghost" id="keyForget" style="display:none">Oublier la clé TomTom</button>
-
-  <div class="sep"></div>
-
-  <h4>🧭 Openrouteservice</h4>
-  <p>Moteur libre fondé sur OpenStreetMap — la même source que les alertes de gabarit. Sert de repli quand TomTom est indisponible ou hors quota. Clé gratuite sur <a href="https://openrouteservice.org/dev/#/signup" target="_blank" rel="noopener">openrouteservice.org</a>.</p>
-  <input class="inp" id="orsInput" type="password" placeholder="Clé Openrouteservice"
-         autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
-  <p class="state" id="orsState"></p>
-  <button class="btn" id="orsSave">Enregistrer la clé ORS</button>
-  <button class="btn ghost" id="orsForget" style="display:none">Oublier la clé ORS</button>
-
-  <div class="sep"></div>
-  <button class="btn ghost" id="keyCancel">Fermer</button>
-</div>
-
 <!-- Overlays navigation guidée -->
 <div id="navTop">
   <div class="arrow" id="navArrow">↑</div>
@@ -391,8 +408,14 @@
   </div>
 </div>
 <button id="recenter" aria-label="Recentrer sur ma position">⌖ Recentrer</button>
+<div id="speedo">
+  <div class="gauge" id="speedoGauge">
+    <span class="gval mono" id="navSpeed">—</span>
+    <span class="gunit">km/h</span>
+  </div>
+  <div class="limit" id="speedLimit"><span id="speedLimitVal">—</span></div>
+</div>
 <div id="navBottom">
-  <div class="nb-cell"><span class="k">Vitesse</span><span class="v mono" id="navSpeed">—</span></div>
   <div class="nb-cell"><span class="k">Restant</span><span class="v mono" id="navRemain">—</span></div>
   <div class="nb-cell"><span class="k">Arrivée dans</span><span class="v mono" id="navEta">—</span></div>
   <button class="navquit" id="navQuit">Quitter</button>
@@ -414,9 +437,7 @@
 </div>
 
 <div class="fabs">
-  <button class="fab" id="keysBtn" aria-label="Moteurs d'itinéraire et clés d'API">🔑</button>
   <button class="fab" id="trafficBtn" aria-label="Trafic TomTom en direct">🚦</button>
-  <button class="fab" id="themeBtn" aria-label="Jour / Nuit">🌙</button>
   <button class="fab" id="locBtn" aria-label="Ma position">◎</button>
 </div>
 
@@ -435,15 +456,12 @@
     <button class="tab" data-tab="poi">Services</button>
     <button class="tab" data-tab="veh">Véhicule</button>
     <button class="tab" data-tab="fav">Favoris</button>
+    <button class="tab" data-tab="opt">Options</button>
   </div>
   <div class="panes">
 
     <!-- ROUTE -->
     <div class="pane active" id="pane-route">
-      <label class="lb">Options d'itinéraire</label>
-      <div class="chips" id="routeOpts">
-        <button class="chip" id="tollChip" data-on="0">🚧 Éviter les péages</button>
-      </div>
       <div id="routeInfo" class="empty">Aucun itinéraire pour l'instant.</div>
       <button class="btn" id="startNav" style="display:none">▶ Démarrer la navigation</button>
       <button class="btn ghost" id="clearRoute" style="display:none">Effacer l'itinéraire</button>
@@ -491,6 +509,42 @@
       <button class="btn" id="addFav">★ Enregistrer ce lieu</button>
       <p class="hint">Astuce : posez d'abord une destination (recherche, ou depuis l'onglet Services), donnez-lui un nom, puis enregistrez.</p>
       <div id="favList"></div>
+    </div>
+
+    <!-- OPTIONS -->
+    <div class="pane" id="pane-opt">
+      <label class="lb">Itinéraire</label>
+      <div class="optrow">
+        <div class="lbl">🚧 Éviter les péages<small>Contourne les routes à péage (clé TomTom ou ORS requise)</small></div>
+        <button class="toggle" id="tollChip" data-on="0" role="switch" aria-checked="false" aria-label="Éviter les péages"></button>
+      </div>
+
+      <label class="lb">Affichage</label>
+      <div class="optrow">
+        <div class="lbl">🌙 Mode nuit<small>Fond de carte sombre</small></div>
+        <button class="toggle" id="themeToggle" role="switch" aria-checked="false" aria-label="Mode nuit"></button>
+      </div>
+
+      <label class="lb">Clés d'activation</label>
+      <p>L'appli essaie les moteurs dans cet ordre : <b>TomTom</b> (gabarit + trafic), puis <b>Openrouteservice</b> (gabarit, sans trafic), puis <b>OSRM</b> (voiture, dernier recours). Chaque clé est facultative.</p>
+
+      <h4>🚦 TomTom</h4>
+      <p>Trafic en direct, et itinéraire calculé pour votre gabarit sans vous appliquer les interdictions réservées aux poids lourds. Clé gratuite sur <a href="https://developer.tomtom.com/" target="_blank" rel="noopener">developer.tomtom.com</a>.</p>
+      <input class="inp" id="keyInput" type="password" placeholder="Clé TomTom"
+             autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <p class="state" id="ttState"></p>
+      <button class="btn" id="keySave">Enregistrer la clé TomTom</button>
+      <button class="btn ghost" id="keyForget" style="display:none">Oublier la clé TomTom</button>
+
+      <div class="sep"></div>
+
+      <h4>🧭 Openrouteservice</h4>
+      <p>Moteur libre fondé sur OpenStreetMap — la même source que les alertes de gabarit. Sert de repli quand TomTom est indisponible ou hors quota. Clé gratuite sur <a href="https://openrouteservice.org/dev/#/signup" target="_blank" rel="noopener">openrouteservice.org</a>.</p>
+      <input class="inp" id="orsInput" type="password" placeholder="Clé Openrouteservice"
+             autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <p class="state" id="orsState"></p>
+      <button class="btn" id="orsSave">Enregistrer la clé ORS</button>
+      <button class="btn ghost" id="orsForget" style="display:none">Oublier la clé ORS</button>
     </div>
 
   </div>
@@ -559,6 +613,8 @@ if (typeof L === 'undefined') {
   var navActive=false, navWatch=null, navSteps=[], navPtr=0, navMarker=null,
       offCount=0, spokenFar={}, spokenNear={}, spokenExit={}, voiceOn=true,
       following=true, navLast=null, navIdx=1;
+  // Limites de vitesse : segments [{a:[lat,lng], b:[lat,lng], v:kmh}], + garde-fous
+  var speedSegs=[], speedAbort=null, speedKey='', lastLimit=null, speedKX=1, speedKY=110540;
 
   // ---------- Map ----------
   var map = L.map('map', { zoomControl:false, attributionControl:true })
@@ -923,7 +979,7 @@ if (typeof L === 'undefined') {
       // une fois en autorisant les péages, plutôt que de tomber sur OSRM.
       if(avoidTolls && e && e.message==='ors 404'){
         avoidTolls=false;
-        var chip=$('#tollChip'); if(chip){ chip.classList.remove('on'); chip.dataset.on='0'; }
+        var chip=$('#tollChip'); if(chip){ chip.classList.remove('on'); chip.dataset.on='0'; chip.setAttribute('aria-checked','false'); }
         toast('Aucun itinéraire sans péage trouvé — péages autorisés.',4000);
         return orsFetch();
       }
@@ -1041,8 +1097,9 @@ if (typeof L === 'undefined') {
     avoidTolls=!avoidTolls;
     this.classList.toggle('on', avoidTolls);
     this.dataset.on = avoidTolls?'1':'0';
+    this.setAttribute('aria-checked', avoidTolls?'true':'false');
     if(!ttKey && !orsKey && avoidTolls){
-      toast('L\'évitement des péages nécessite une clé TomTom ou Openrouteservice (🔑).',4500);
+      toast('L\'évitement des péages nécessite une clé TomTom ou Openrouteservice (onglet Options).',4500);
     }
     if(pts.from && pts.to) calcRoute();
   });
@@ -1112,6 +1169,65 @@ if (typeof L === 'undefined') {
          +'|'+mid[0].toFixed(4)+','+mid[1].toFixed(4)
          +'|'+coords[coords.length-1][0].toFixed(4)+','+coords[coords.length-1][1].toFixed(4)
          +'|'+[vehicle.h,vehicle.w,vehicle.l,vehicle.len].join('/');
+  }
+
+  // Convertit une valeur OSM maxspeed en km/h. Gère mph, les valeurs implicites
+  // (walk) et ignore ce qui n'est pas chiffrable (none, signals, variable…).
+  function parseMaxspeed(v){
+    if(v==null) return null;
+    v=String(v).toLowerCase().trim();
+    if(v==='walk') return 10;
+    if(v==='none'||v==='signals'||v==='variable'||v==='unknown') return null;
+    var m=v.match(/([0-9]+(?:\.[0-9]+)?)/); if(!m) return null;
+    var n=parseFloat(m[1]);
+    if(v.indexOf('mph')>-1) return Math.round(n*1.60934);
+    if(v.indexOf('knot')>-1) return Math.round(n*1.852);
+    return Math.round(n);
+  }
+
+  // Récupère les limites de vitesse le long du trajet (un seul appel, au départ
+  // de la navigation). Chaque way OSM devient une suite de segments géoréférencés.
+  function fetchSpeedLimits(coords){
+    if(speedAbort){ speedAbort.abort(); speedAbort=null; }
+    var poly = corridor(coords);
+    if(poly.length<2){ speedSegs=[]; return; }
+    var sig = poly.length+'|'+poly[0][0].toFixed(3)+'|'+poly[poly.length-1][0].toFixed(3);
+    if(sig===speedKey && speedSegs.length) return; // déjà chargé pour ce trajet
+    var polyStr = poly.map(function(pp){ return pp[0].toFixed(5)+','+pp[1].toFixed(5); }).join(',');
+    if(polyStr.length>60000){ speedSegs=[]; return; }
+
+    var q='[out:json][timeout:60];way["maxspeed"](around:35,'+polyStr+');out geom 500;';
+    speedAbort = ('AbortController' in window) ? new AbortController() : null;
+    overpassFetch(q, speedAbort ? speedAbort.signal : undefined)
+      .then(function(d){
+        var lat0=poly[Math.floor(poly.length/2)][0];
+        var kx=Math.cos(lat0*Math.PI/180)*111320, ky=110540;
+        var segs=[];
+        (d.elements||[]).forEach(function(el){
+          if(!el.geometry || el.geometry.length<2) return;
+          var v=parseMaxspeed((el.tags||{}).maxspeed);
+          if(v==null) return;
+          for(var i=1;i<el.geometry.length;i++){
+            var g0=el.geometry[i-1], g1=el.geometry[i];
+            segs.push({ ax:g0.lon*kx, ay:g0.lat*ky, bx:g1.lon*kx, by:g1.lat*ky, v:v });
+          }
+        });
+        speedSegs=segs; speedKX=kx; speedKY=ky; speedKey=sig;
+      })
+      .catch(function(e){ if(!(e && e.name==='AbortError')) speedSegs=[]; });
+  }
+
+  // Limite applicable à la position courante : segment le plus proche (< 30 m).
+  // Segments déjà projetés (speedKX/KY) : simple balayage, sans trigonométrie.
+  function speedLimitAt(lat, lng){
+    if(!speedSegs.length) return null;
+    var px=lng*speedKX, py=lat*speedKY, best=Infinity, bestV=null;
+    for(var i=0;i<speedSegs.length;i++){
+      var sg=speedSegs[i];
+      var r=segNear(px,py, sg.ax,sg.ay, sg.bx,sg.by);
+      if(r[2]<best){ best=r[2]; bestV=sg.v; }
+    }
+    return Math.sqrt(best)<=30 ? bestV : null;
   }
 
   function checkHeights(coords){
@@ -1389,13 +1505,12 @@ if (typeof L === 'undefined') {
     document.body.classList.toggle('light', themeMode==='light');
     applyTiles();
     if(themeMeta) themeMeta.setAttribute('content', themeMode==='light' ? '#eef1f6' : '#12161f');
-    var ico = themeMode==='dark' ? '🌙' : '☀️';
-    var tb=$('#themeBtn'), nt=$('#navTheme');
-    if(tb) tb.textContent=ico;
-    if(nt) nt.textContent=ico;
+    var nightOn = themeMode==='dark';
+    var tg=$('#themeToggle');
+    if(tg){ tg.classList.toggle('on', nightOn); tg.setAttribute('aria-checked', nightOn?'true':'false'); }
+    var nt=$('#navTheme'); if(nt) nt.textContent = nightOn ? '☀️' : '🌙';
   }
-  $('#themeBtn').addEventListener('click', toggleTheme);
-  $('#themeBtn').textContent='☀️';
+  $('#themeToggle').addEventListener('click', toggleTheme);
 
   // ================= Favoris + persistance (localStorage) =================
   var favorites=[];
@@ -1495,8 +1610,8 @@ if (typeof L === 'undefined') {
     $('#keyForget').style.display = ttKey ? 'block':'none';
     $('#orsForget').style.display = orsKey ? 'block':'none';
   }
-  function openKeyPanel(){ refreshKeyStates(); $('#keyPanel').classList.add('show'); }
-  $('#keysBtn').addEventListener('click', openKeyPanel);
+  // L'onglet Options porte les clés : y basculer met à jour l'affichage des états.
+  function openOptionsTab(){ refreshKeyStates(); document.querySelector('.tab[data-tab=opt]').click(); }
 
   function ttUrl(){
     return 'https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key='+encodeURIComponent(ttKey);
@@ -1504,12 +1619,8 @@ if (typeof L === 'undefined') {
 
   $('#trafficBtn').addEventListener('click', function(){
     if(ttActive){ closeTraffic(); return; }
-    if(!ttKey){ openKeyPanel(); return; }
+    if(!ttKey){ toast('Ajoutez une clé TomTom dans l\'onglet Options pour afficher le trafic.',4000); openOptionsTab(); return; }
     openTraffic();
-  });
-  $('#keyCancel').addEventListener('click', function(){
-    $('#keyPanel').classList.remove('show');
-    $('#keyInput').value=''; $('#orsInput').value='';
   });
 
   // Vérifie la clé une seule fois, sur une tuile connue. Seul un refus explicite
@@ -1533,7 +1644,7 @@ if (typeof L === 'undefined') {
       hideToast();
       ttKey=k; ttErrors=0; ttWarned=false;
       storeKey('cc_ttkey',k);
-      $('#keyPanel').classList.remove('show'); $('#keyInput').value='';
+      $('#keyInput').value='';
       refreshKeyStates(); vehHint();
       openTraffic();
       if(pts.from && pts.to) calcRoute(); // recalcul avec trafic + gabarit
@@ -1771,7 +1882,7 @@ if (typeof L === 'undefined') {
   $('#startNav').addEventListener('click', startNav);
   $('#navQuit').addEventListener('click', stopNav);
   $('#navTheme').addEventListener('click', toggleTheme);
-  $('#navTheme').textContent='☀️';
+  $('#navTheme').textContent = (themeMode==='dark') ? '☀️' : '🌙';
   $('#navVoice').addEventListener('click', function(){
     voiceOn=!voiceOn; this.classList.toggle('off',!voiceOn);
     this.textContent=voiceOn?'🔊':'🔇';
@@ -1840,6 +1951,8 @@ if (typeof L === 'undefined') {
     if(navMarker){ map.removeLayer(navMarker); navMarker=null; }
     speak('Navigation démarrée.', true);
     updateNavDisplay(null);
+    lastLimit=null; $('#speedLimit').classList.remove('show'); $('#speedoGauge').classList.remove('over');
+    fetchSpeedLimits(routeCoords);
     navWatch=navigator.geolocation.watchPosition(onNavPos, function(){
       var t=Date.now();
       if(t-lastGpsWarn>20000){ lastGpsWarn=t; toast('Signal GPS perdu…',1500); }
@@ -1856,6 +1969,8 @@ if (typeof L === 'undefined') {
     if(navWatch!=null){ navigator.geolocation.clearWatch(navWatch); navWatch=null; }
     if(navMarker){ map.removeLayer(navMarker); navMarker=null; }
     if('speechSynthesis' in window) window.speechSynthesis.cancel();
+    if(speedAbort){ speedAbort.abort(); speedAbort=null; }
+    lastLimit=null;
     if(routeCoords) map.fitBounds(L.latLngBounds(routeCoords),{padding:[50,50]});
     openSheet();
   }
@@ -1866,7 +1981,9 @@ if (typeof L === 'undefined') {
     var here=L.latLng(lat,lng);
 
     var sp = pos.coords.speed;
-    $('#navSpeed').textContent = (sp!=null && !isNaN(sp) && sp>=0) ? Math.round(sp*3.6)+' km/h' : '—';
+    var kmh = (sp!=null && !isNaN(sp) && sp>=0) ? Math.round(sp*3.6) : null;
+    $('#navSpeed').textContent = (kmh!=null) ? kmh : '—';
+    updateSpeedLimit(lat, lng, kmh);
 
     var counter = following ? rotateHeadingUp(hd) : contAngle;
     if(navMarker) navMarker.setLatLng(here).setIcon(navDot(counter));
@@ -1925,6 +2042,27 @@ if (typeof L === 'undefined') {
     }
   }
 
+  // Met à jour le panneau de limite et signale un éventuel dépassement.
+  var lastLimitCheck=0;
+  function updateSpeedLimit(lat, lng, kmh){
+    var now=Date.now();
+    // Le calcul balaie tous les segments : on le limite à ~2 Hz pour ménager le CPU.
+    if(now-lastLimitCheck>=450){
+      lastLimitCheck=now;
+      lastLimit = speedLimitAt(lat, lng);
+    }
+    var box=$('#speedLimit'), val=$('#speedLimitVal'), gauge=$('#speedoGauge');
+    if(lastLimit!=null){
+      val.textContent=lastLimit;
+      box.classList.add('show');
+      var over = (kmh!=null && kmh > lastLimit + 3);
+      gauge.classList.toggle('over', over);
+    } else {
+      box.classList.remove('show');
+      gauge.classList.remove('over');
+    }
+  }
+
   // Distance restante après la manœuvre `ptr` (la distance jusqu'à elle est ajoutée par l'appelant)
   function remainingFrom(ptr){
     var rem=0;
@@ -1961,6 +2099,7 @@ if (typeof L === 'undefined') {
       routeWarnings=[]; warnLayer.clearLayers();
       warnKey='';
       checkHeights(rt.coords);
+      speedKey=''; fetchSpeedLimits(rt.coords);
       speak('Itinéraire recalculé.', true);
     }).catch(function(){ hideToast(); toast('Recalcul indisponible.'); });
   }

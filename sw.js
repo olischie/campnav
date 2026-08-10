@@ -3,8 +3,8 @@
 //  - coquille de l'appli (index + libs) : "network-first" puis cache (toujours à jour si en ligne)
 //  - tuiles de carte : "cache-first" (les zones déjà consultées restent dispo hors-ligne)
 
-const SHELL_CACHE = 'cc-shell-v4';
-const TILE_CACHE  = 'cc-tiles-v4';
+const SHELL_CACHE = 'cc-shell-v5';
+const TILE_CACHE  = 'cc-tiles-v5';
 
 const SHELL_ASSETS = [
   './',
@@ -19,7 +19,7 @@ const SHELL_ASSETS = [
 ];
 
 // Hôtes dont on met les tuiles en cache pour l'usage hors-ligne
-const TILE_HOSTS = ['basemaps.cartocdn.com'];
+const TILE_HOSTS = ['basemaps.cartocdn.com', 'tile.openstreetmap.org', 'tile.opentopomap.org'];
 
 // Services en ligne : jamais interceptés, jamais mis en cache.
 // (api.tomtom.com contient la clé d'API dans l'URL : elle ne doit rien laisser sur le disque.)

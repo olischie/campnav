@@ -355,6 +355,18 @@
   }
   .toggle.on{ background:var(--blue); border-color:var(--blue); }
   .toggle.on::after{ transform:translateX(22px); }
+
+  /* Grille de choix du fond de carte */
+  .basegrid{ display:grid; grid-template-columns:repeat(2,1fr); gap:8px; margin-top:4px; }
+  .basegrid .chip{
+    display:flex; flex-direction:column; align-items:flex-start; gap:2px;
+    padding:12px 14px; border-radius:12px; border:1px solid var(--line);
+    background:var(--panel-2); color:var(--ink); text-align:left;
+  }
+  .basegrid .chip b{ font-size:14px; font-weight:600; }
+  .basegrid .chip small{ font-size:11px; color:var(--muted); }
+  .basegrid .chip.on{ background:var(--blue); border-color:var(--blue); }
+  .basegrid .chip.on b, .basegrid .chip.on small{ color:#fff; }
   /* Bouton dans les popups de service */
   .leaflet-popup-content .popgo{
     margin-top:8px; width:100%; border:0; border-radius:8px; padding:9px 10px;
@@ -519,11 +531,8 @@
         <button class="toggle" id="tollChip" data-on="0" role="switch" aria-checked="false" aria-label="Éviter les péages"></button>
       </div>
 
-      <label class="lb">Affichage</label>
-      <div class="optrow">
-        <div class="lbl">🌙 Mode nuit<small>Fond de carte sombre</small></div>
-        <button class="toggle" id="themeToggle" role="switch" aria-checked="false" aria-label="Mode nuit"></button>
-      </div>
+      <label class="lb">Fond de carte</label>
+      <div class="basegrid" id="baseChips"></div>
 
       <label class="lb">Clés d'activation</label>
       <p>L'appli essaie les moteurs dans cet ordre : <b>TomTom</b> (gabarit + trafic), puis <b>Openrouteservice</b> (gabarit, sans trafic), puis <b>OSRM</b> (voiture, dernier recours). Chaque clé est facultative.</p>
@@ -619,19 +628,44 @@ if (typeof L === 'undefined') {
   // ---------- Map ----------
   var map = L.map('map', { zoomControl:false, attributionControl:true })
              .setView([50.85, 4.35], 12); // Bruxelles par défaut
-  var TILES={
-    dark:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    light:'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+  // Catalogue de fonds de carte, choisis dans l'onglet Options. Chacun déclare
+  // son URL, sa verbosité de zoom, son attribution, s'il est sombre (chrome nuit),
+  // ses sous-domaines et s'il gère le @2x (retina). Services gratuits, usage perso.
+  var BASEMAPS = {
+    voyager: { name:'Voyager', sub:'CARTO coloré', dark:false, maxZoom:20, retina:true,
+      url:'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+      subdomains:'abcd', attr:'&copy; OpenStreetMap &copy; CARTO' },
+    osm: { name:'OpenStreetMap', sub:'Contrasté, détaillé', dark:false, maxZoom:19, retina:false,
+      url:'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      subdomains:'abc', attr:'&copy; OpenStreetMap' },
+    topo: { name:'Topo', sub:'Relief & sentiers', dark:false, maxZoom:17, retina:false,
+      url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+      subdomains:'abc', attr:'&copy; OpenTopoMap (CC-BY-SA) &copy; OpenStreetMap' },
+    positron: { name:'Épuré', sub:'Clair minimal', dark:false, maxZoom:20, retina:true,
+      url:'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+      subdomains:'abcd', attr:'&copy; OpenStreetMap &copy; CARTO' },
+    dark: { name:'Nuit', sub:'Fond sombre', dark:true, maxZoom:20, retina:true,
+      url:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+      subdomains:'abcd', attr:'&copy; OpenStreetMap &copy; CARTO' }
   };
-  var themeMode='light', tileLayer=null;
+  var BASE_ORDER = ['voyager','osm','topo','positron','dark'];
+  var currentBase = 'voyager', prevLightBase = 'voyager', tileLayer=null;
+
   function applyTiles(){
+    var b = BASEMAPS[currentBase] || BASEMAPS.voyager;
     if(tileLayer) map.removeLayer(tileLayer);
-    tileLayer=L.tileLayer(TILES[themeMode],{
-      maxZoom:20, subdomains:'abcd', attribution:'&copy; OpenStreetMap &copy; CARTO'
-    }).addTo(map);
+    var opts = {
+      maxZoom:20, maxNativeZoom:b.maxZoom, subdomains:b.subdomains,
+      detectRetina:!!b.retina, attribution:b.attr, crossOrigin:true
+    };
+    tileLayer=L.tileLayer(b.url, opts).addTo(map);
     tileLayer.bringToBack();
+    // Chrome sombre + couleur de barre système selon le fond choisi
+    document.body.classList.toggle('light', !b.dark);
+    if(themeMeta) themeMeta.setAttribute('content', b.dark ? '#12161f' : '#eef1f6');
   }
-  document.body.classList.add('light'); // mode jour par défaut
+  var themeMeta = $('#themeColorMeta');
+  document.body.classList.add('light'); // fond clair par défaut
   applyTiles();
   poiLayer = L.layerGroup().addTo(map);
   warnLayer = L.layerGroup().addTo(map);
@@ -1034,9 +1068,10 @@ if (typeof L === 'undefined') {
   }
 
   function drawRoute(coords){
+    // Liseré sombre + trait bleu vif : lisible sur fond clair coloré comme sur fond nuit.
     return L.layerGroup([
-      L.polyline(coords,{color:'#0b1220',weight:10,opacity:.6}),
-      L.polyline(coords,{color:'#3b82f6',weight:6,opacity:1})
+      L.polyline(coords,{color:'#0b1220',weight:11,opacity:.85,lineJoin:'round',lineCap:'round'}),
+      L.polyline(coords,{color:'#1d6fff',weight:6,opacity:1,lineJoin:'round',lineCap:'round'})
     ]).addTo(map);
   }
 
@@ -1498,19 +1533,29 @@ if (typeof L === 'undefined') {
     { enableHighAccuracy:true, timeout:8000 });
   });
 
-  // ---------- Thème jour / nuit ----------
-  var themeMeta = $('#themeColorMeta');
-  function toggleTheme(){
-    themeMode = themeMode==='dark' ? 'light' : 'dark';
-    document.body.classList.toggle('light', themeMode==='light');
+  // ---------- Fond de carte ----------
+  function isDark(){ return !!(BASEMAPS[currentBase] && BASEMAPS[currentBase].dark); }
+
+  function setBasemap(key, save){
+    if(!BASEMAPS[key]) return;
+    if(!BASEMAPS[key].dark) prevLightBase = key; // mémorise le dernier fond clair
+    currentBase = key;
     applyTiles();
-    if(themeMeta) themeMeta.setAttribute('content', themeMode==='light' ? '#eef1f6' : '#12161f');
-    var nightOn = themeMode==='dark';
-    var tg=$('#themeToggle');
-    if(tg){ tg.classList.toggle('on', nightOn); tg.setAttribute('aria-checked', nightOn?'true':'false'); }
-    var nt=$('#navTheme'); if(nt) nt.textContent = nightOn ? '☀️' : '🌙';
+    // Reflète le choix dans la grille de l'onglet Options
+    document.querySelectorAll('#baseChips .chip').forEach(function(c){
+      c.classList.toggle('on', c.dataset.base===key);
+    });
+    // Bouton nuit de l'écran de navigation : propose l'inverse
+    var nt=$('#navTheme'); if(nt) nt.textContent = isDark() ? '☀️' : '🌙';
+    if(save && HAS_LS){ try{ localStorage.setItem('cc_base', key); }catch(e){} }
   }
-  $('#themeToggle').addEventListener('click', toggleTheme);
+
+  // Bouton jour/nuit de l'overlay navigation : bascule entre le fond nuit et le
+  // dernier fond clair utilisé.
+  function toggleTheme(){
+    setBasemap(isDark() ? prevLightBase : 'dark', true);
+  }
+  $('#navTheme').addEventListener('click', toggleTheme);
 
   // ================= Favoris + persistance (localStorage) =================
   var favorites=[];
@@ -1573,6 +1618,23 @@ if (typeof L === 'undefined') {
       list.appendChild(row);
     });
   }
+
+  // Construit la grille de fonds de carte et applique le choix mémorisé
+  (function buildBaseGrid(){
+    var host=$('#baseChips'); if(!host) return;
+    host.innerHTML='';
+    BASE_ORDER.forEach(function(key){
+      var b=BASEMAPS[key];
+      var el=document.createElement('button');
+      el.className='chip'+(key===currentBase?' on':'');
+      el.dataset.base=key;
+      el.innerHTML='<b>'+esc(b.name)+'</b><small>'+esc(b.sub)+'</small>';
+      el.addEventListener('click', function(){ setBasemap(key, true); });
+      host.appendChild(el);
+    });
+    var saved = HAS_LS ? (localStorage.getItem('cc_base')||'') : '';
+    if(saved && BASEMAPS[saved]) setBasemap(saved, false);
+  })();
 
   loadStore();
   renderFavs();
@@ -1881,8 +1943,7 @@ if (typeof L === 'undefined') {
 
   $('#startNav').addEventListener('click', startNav);
   $('#navQuit').addEventListener('click', stopNav);
-  $('#navTheme').addEventListener('click', toggleTheme);
-  $('#navTheme').textContent = (themeMode==='dark') ? '☀️' : '🌙';
+  $('#navTheme').textContent = isDark() ? '☀️' : '🌙';
   $('#navVoice').addEventListener('click', function(){
     voiceOn=!voiceOn; this.classList.toggle('off',!voiceOn);
     this.textContent=voiceOn?'🔊':'🔇';

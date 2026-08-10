@@ -4,14 +4,14 @@ Application web de navigation pensée pour les camping-cars, **optimisée mobile
 
 ## ✨ Fonctionnalités
 
-- **Carte interactive** plein écran (Leaflet), avec **choix du fond de carte** dans l'onglet Options : **OpenStreetMap** (contrasté, détaillé), **Topo** (relief & sentiers) et **Nuit** (les mêmes tuiles OSM assombries, pour garder les routes lisibles la nuit).
+- **Carte interactive** plein écran (Leaflet), avec **choix du fond de carte** dans l'onglet Options : **OpenStreetMap** (contrasté, détaillé), **Topo** (relief & sentiers) et **Nuit** (les mêmes tuiles OSM assombries, pour garder les routes lisibles la nuit), plus un **curseur de luminosité** réglable.
 - **Recherche d'adresses et de lieux** (Nominatim / OpenStreetMap).
 - **Itinéraire** point à point : **un seul trajet**, équilibrant durée et distance, avec une option **« éviter les péages »**.
 - **Profil du véhicule** (hauteur, poids, largeur, longueur) utilisé de deux façons :
   - avec une **clé TomTom** ou **Openrouteservice**, l'itinéraire est **calculé pour votre gabarit** (les passages trop bas ou limités en tonnage sont évités par le moteur) ;
   - dans tous les cas, les **restrictions rencontrées** le long du trajet sont repérées à partir des données OpenStreetMap et annoncées à l'approche.
 - **Aires & services** : aires de camping-car, campings, parkings, restaurants, supermarchés, sites touristiques (Overpass). Les résultats s'effacent de la carte d'un bouton.
-- **Navigation guidée** : suivi GPS temps réel, carte orientée dans le sens de marche, recentrage, instructions virage par virage, **annonces vocales en français**, **compteur de vitesse et limite en vigueur** (en bas à gauche, l'anneau passe au rouge en cas de dépassement), verrouillage de l'écran, recalcul automatique en cas de sortie d'itinéraire.
+- **Navigation guidée** : suivi GPS temps réel, carte orientée dans le sens de marche, recentrage, instructions virage par virage, **annonces vocales en français**, **alternative proposée si le trafic la rend plus rapide** (clé TomTom), **compteur de vitesse et limite en vigueur** (en bas à gauche, l'anneau passe au rouge en cas de dépassement), verrouillage de l'écran, recalcul automatique en cas de sortie d'itinéraire.
 - **Favoris** et **profil véhicule** sauvegardés localement (persistants d'une session à l'autre).
 - **Trafic TomTom en direct** (optionnel, nécessite votre propre clé — voir plus bas).
 

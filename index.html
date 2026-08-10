@@ -285,6 +285,27 @@
   #navTop .navbtns{display:flex;flex-direction:column;gap:6px;flex:none;}
   #navTop .navbtns .navvoice{width:40px;height:40px;}
 
+  /* Bandeau « itinéraire plus rapide » proposé pendant la navigation */
+  #altBanner{
+    position:absolute; z-index:815; left:10px; right:10px;
+    bottom:calc(84px + var(--safe-b));
+    background:var(--panel); border:1px solid var(--green); border-radius:16px;
+    display:none; align-items:center; gap:10px; padding:12px 14px;
+    box-shadow:0 8px 26px rgba(0,0,0,.55);
+  }
+  body.nav #altBanner.show{ display:flex; }
+  #altBanner .ab-txt{ flex:1; min-width:0; }
+  #altBanner .ab-txt b{ font-size:15px; display:block; }
+  #altBanner .ab-txt small{ color:var(--muted); font-size:12px; }
+  #altBanner button{
+    flex:none; border:0; border-radius:11px; padding:11px 14px;
+    font-size:14px; font-weight:600;
+  }
+  #altBanner .ab-yes{ background:var(--green); color:#06240f; }
+  #altBanner .ab-no{ background:var(--panel-2); color:var(--ink); border:1px solid var(--line); }
+  /* Le compteur descend quand le bandeau occupe sa place */
+  body.nav.hasalt #speedo{ bottom:calc(150px + var(--safe-b)); }
+
   /* Compteur de vitesse + limite, en bas à gauche */
   #speedo{
     position:absolute; z-index:805; left:12px;
@@ -327,14 +348,33 @@
   body.light .suggest, body.light #navBottom{ box-shadow:0 6px 20px rgba(30,45,80,.14); }
   body.light #toast{ background:#ffffffee; color:#1a2233; }
 
-  /* Mode nuit : on assombrit les tuiles OSM tout en relevant légèrement le
-     contraste. Les routes (claires) restent nettement détachées du fond, sans
-     éblouir de nuit. Seul le calque des tuiles est filtré — le tracé de
-     l'itinéraire, les marqueurs et l'interface gardent leurs couleurs. */
-  body:not(.light) .leaflet-tile-pane{
-    filter:brightness(.62) contrast(1.38) saturate(.8);
+  /* Filtre appliqué aux seules tuiles : le tracé, les marqueurs et l'interface
+     vivent dans d'autres calques et gardent leurs couleurs. Les trois valeurs
+     sont pilotées depuis le JS (mode nuit + curseur de luminosité). */
+  .leaflet-tile-pane{
+    filter:brightness(var(--tb,1)) contrast(var(--tc,1)) saturate(var(--ts,1));
   }
   body:not(.light) #map{ background:#0a0d14; }
+
+  /* Curseur de luminosité */
+  .slider-row{ display:flex; align-items:center; gap:12px; padding:6px 0 2px; }
+  .slider-row .ico{ font-size:16px; flex:none; opacity:.7; }
+  .slider-row output{
+    flex:none; min-width:44px; text-align:right; font-size:13px; color:var(--muted);
+    font-variant-numeric:tabular-nums;
+  }
+  input[type=range]{
+    flex:1; -webkit-appearance:none; appearance:none; height:6px; border-radius:3px;
+    background:var(--panel-2); border:1px solid var(--line); outline:0; margin:0;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; appearance:none; width:26px; height:26px; border-radius:50%;
+    background:var(--blue); border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,.4);
+  }
+  input[type=range]::-moz-range-thumb{
+    width:24px; height:24px; border-radius:50%; border:2px solid #fff;
+    background:var(--blue); box-shadow:0 2px 6px rgba(0,0,0,.4);
+  }
 
   #trafficBtn.on{ background:var(--blue); border-color:var(--blue); color:#fff; }
 
@@ -435,6 +475,11 @@
     <span class="gunit">km/h</span>
   </div>
   <div class="limit" id="speedLimit"><span id="speedLimitVal">—</span></div>
+</div>
+<div id="altBanner">
+  <div class="ab-txt"><b id="altTitle">Itinéraire plus rapide</b><small id="altSub">—</small></div>
+  <button class="ab-yes" id="altAccept">Suivre</button>
+  <button class="ab-no" id="altDismiss">Non</button>
 </div>
 <div id="navBottom">
   <div class="nb-cell"><span class="k">Restant</span><span class="v mono" id="navRemain">—</span></div>
@@ -542,6 +587,16 @@
 
       <label class="lb">Fond de carte</label>
       <div class="basegrid" id="baseChips"></div>
+
+      <label class="lb">Luminosité de la carte</label>
+      <div class="slider-row">
+        <span class="ico">🌑</span>
+        <input type="range" id="brightRange" min="35" max="130" step="5" value="100"
+               aria-label="Luminosité de la carte">
+        <span class="ico">🔆</span>
+        <output id="brightOut">100 %</output>
+      </div>
+      <p>Assombrissez la carte de nuit ou éclaircissez-la en plein soleil. N'affecte que le fond : l'itinéraire et les repères gardent leur éclat.</p>
 
       <label class="lb">Clés d'activation</label>
       <p>L'appli essaie les moteurs dans cet ordre : <b>TomTom</b> (gabarit + trafic), puis <b>Openrouteservice</b> (gabarit, sans trafic), puis <b>OSRM</b> (voiture, dernier recours). Chaque clé est facultative.</p>
@@ -671,6 +726,20 @@ if (typeof L === 'undefined') {
     document.body.classList.toggle('light', !b.dark);
     var meta = document.getElementById('themeColorMeta');
     if(meta) meta.setAttribute('content', b.dark ? '#12161f' : '#eef1f6');
+    applyTileFilter();
+  }
+
+  // Luminosité réglable (1 = tuiles d'origine). Le mode nuit part de 0,62 et le
+  // curseur module ce point de départ, pour rester cohérent dans les deux modes.
+  var mapBright = 1;
+  function applyTileFilter(){
+    var night = !!(BASEMAPS[currentBase] && BASEMAPS[currentBase].dark);
+    var b = (night ? 0.62 : 1) * mapBright;
+    if(b < 0.15) b = 0.15;
+    var st = document.body.style;
+    st.setProperty('--tb', b.toFixed(3));
+    st.setProperty('--tc', night ? '1.38' : '1.06');
+    st.setProperty('--ts', night ? '0.8' : '1');
   }
   document.body.classList.add('light'); // fond clair par défaut
   applyTiles();
@@ -897,9 +966,12 @@ if (typeof L === 'undefined') {
     return { mode:'truck', qs:qs+'&vehicleCommercial=false', gabarit:true };
   }
 
-  function tomtomFetch(){
+  // `origin` permet de repartir de la position courante (surveillance du trafic
+  // en navigation) au lieu du point de départ saisi.
+  function tomtomFetch(origin){
     var v = ttVehicleQuery();
-    var c = pts.from.lat+','+pts.from.lng+':'+pts.to.lat+','+pts.to.lng;
+    var o = origin || pts.from;
+    var c = o.lat+','+o.lng+':'+pts.to.lat+','+pts.to.lng;
     // routeType=fastest avec traffic=true tient déjà compte de la vitesse réelle,
     // ce qui rapproche le résultat du meilleur compromis temps/distance.
     var url='https://api.tomtom.com/routing/1/calculateRoute/'+c+'/json'+
@@ -1626,6 +1698,26 @@ if (typeof L === 'undefined') {
     });
   }
 
+  // Curseur de luminosité de la carte
+  (function wireBrightness(){
+    var r=$('#brightRange'), out=$('#brightOut');
+    if(!r) return;
+    var saved = HAS_LS ? parseInt(localStorage.getItem('cc_bright')||'',10) : NaN;
+    if(!isNaN(saved) && saved>=35 && saved<=130){ mapBright = saved/100; r.value = saved; }
+    function render(){
+      if(out) out.textContent = Math.round(mapBright*100)+' %';
+      applyTileFilter();
+    }
+    r.addEventListener('input', function(){
+      mapBright = (parseInt(r.value,10)||100)/100;
+      render();
+    });
+    r.addEventListener('change', function(){
+      if(HAS_LS){ try{ localStorage.setItem('cc_bright', String(Math.round(mapBright*100))); }catch(e){} }
+    });
+    render();
+  })();
+
   // Construit la grille de fonds de carte et applique le choix mémorisé
   (function buildBaseGrid(){
     var host=$('#baseChips'); if(!host) return;
@@ -2017,6 +2109,10 @@ if (typeof L === 'undefined') {
     updateNavDisplay(null);
     lastLimit=null; $('#speedLimit').classList.remove('show'); $('#speedoGauge').classList.remove('over');
     fetchSpeedLimits(routeCoords);
+    // Surveillance du trafic : uniquement avec TomTom, qui seul voit le trafic.
+    hideAltBanner(); altSnooze=0; altBusy=false;
+    if(altTimer){ clearInterval(altTimer); altTimer=null; }
+    if(ttKey) altTimer=setInterval(checkTrafficAlternative, ALT_PERIOD);
     navWatch=navigator.geolocation.watchPosition(onNavPos, function(){
       var t=Date.now();
       if(t-lastGpsWarn>20000){ lastGpsWarn=t; toast('Signal GPS perdu…',1500); }
@@ -2034,6 +2130,8 @@ if (typeof L === 'undefined') {
     if(navMarker){ map.removeLayer(navMarker); navMarker=null; }
     if('speechSynthesis' in window) window.speechSynthesis.cancel();
     if(speedAbort){ speedAbort.abort(); speedAbort=null; }
+    if(altTimer){ clearInterval(altTimer); altTimer=null; }
+    hideAltBanner();
     lastLimit=null;
     if(routeCoords) map.fitBounds(L.latLngBounds(routeCoords),{padding:[50,50]});
     openSheet();
@@ -2147,26 +2245,94 @@ if (typeof L === 'undefined') {
     }
   }
 
+  // Bascule la navigation sur un nouvel itinéraire (recalcul ou alternative trafic)
+  function adoptRoute(rt, spokenMsg){
+    hideAltBanner();          // toute proposition en attente devient caduque
+    lastRoute=rt; routeCoords=rt.coords;
+    routeXY = buildXY(routeCoords);
+    navIdx=1;
+    clearRouteLayers();
+    routeLayer = drawRoute(routeCoords);
+    navSteps=flattenSteps(rt); navPtr=1;
+    spokenFar={}; spokenNear={}; spokenExit={}; spokenWarn={};
+    routeWarnings=[]; warnLayer.clearLayers();
+    warnKey='';
+    checkHeights(rt.coords);
+    speedKey=''; fetchSpeedLimits(rt.coords);
+    if(spokenMsg) speak(spokenMsg, true);
+  }
+
   function recalcFromHere(){
     if(!pts.from || !pts.to){ return; }
     fetchRoutes(true).then(function(routes){
       hideToast();
       if(!routes || !routes.length){ toast('Recalcul impossible.'); return; }
-      var rt=routes[0];
-      lastRoute=rt; routeCoords=rt.coords;
-      routeXY = buildXY(routeCoords);
-      navIdx=1;
-      clearRouteLayers();
-      routeLayer = drawRoute(routeCoords);
-      navSteps=flattenSteps(rt); navPtr=1;
-      spokenFar={}; spokenNear={}; spokenExit={}; spokenWarn={};
-      routeWarnings=[]; warnLayer.clearLayers();
-      warnKey='';
-      checkHeights(rt.coords);
-      speedKey=''; fetchSpeedLimits(rt.coords);
-      speak('Itinéraire recalculé.', true);
+      adoptRoute(routes[0], 'Itinéraire recalculé.');
     }).catch(function(){ hideToast(); toast('Recalcul indisponible.'); });
   }
+
+  // ---------- Surveillance du trafic : proposer une alternative plus rapide ----------
+  // Nécessite TomTom (seul moteur branché sur le trafic en direct). Toutes les
+  // 3 minutes, on redemande le meilleur trajet depuis la position courante et on
+  // le compare au temps restant estimé sur l'itinéraire suivi.
+  var altTimer=null, altCand=null, altSnooze=0, altBusy=false;
+  var ALT_PERIOD=180000, ALT_MIN_GAIN=180, ALT_MIN_RATIO=0.08, ALT_SNOOZE=600000;
+
+  function remainingMeters(){
+    if(!navSteps.length || !navLast) return 0;
+    var step=navSteps[navPtr];
+    var d=0;
+    if(step && step.maneuver && step.maneuver.location){
+      d = map.distance(navLast, L.latLng(step.maneuver.location[1], step.maneuver.location[0]));
+    }
+    return d + remainingFrom(navPtr);
+  }
+  function remainingSeconds(){
+    if(!lastRoute || !lastRoute.distance) return 0;
+    return lastRoute.duration * (remainingMeters()/lastRoute.distance);
+  }
+
+  function hideAltBanner(){
+    altCand=null;
+    $('#altBanner').classList.remove('show');
+    document.body.classList.remove('hasalt');
+  }
+
+  function checkTrafficAlternative(){
+    if(!navActive || altBusy || !ttKey || !navLast || !pts.to) return;
+    if(Date.now() < altSnooze) return;
+    if(altCand) return;                       // une proposition est déjà à l'écran
+    var curRem = remainingSeconds();
+    if(curRem < 420) return;                  // moins de 7 min : inutile de dérouter
+    altBusy=true;
+    tomtomFetch({ lat:navLast.lat, lng:navLast.lng })
+      .then(function(routes){
+        altBusy=false;
+        if(!navActive || !routes || !routes.length) return;
+        var cand=routes[0];
+        var gain = curRem - cand.duration;
+        if(gain < ALT_MIN_GAIN || gain/curRem < ALT_MIN_RATIO) return;
+        altCand=cand;
+        $('#altTitle').textContent='Itinéraire plus rapide : '+Math.round(gain/60)+' min de moins';
+        $('#altSub').textContent=fmtKm(cand.distance)+' · '+fmtDur(cand.duration)+' avec le trafic actuel';
+        $('#altBanner').classList.add('show');
+        document.body.classList.add('hasalt');
+        speak('Un itinéraire plus rapide est disponible.', false);
+      })
+      .catch(function(){ altBusy=false; });
+  }
+
+  $('#altAccept').addEventListener('click', function(){
+    if(!altCand) return;
+    var rt=altCand;
+    hideAltBanner();
+    adoptRoute(rt, 'Nouvel itinéraire adopté.');
+    toast('🔀 Itinéraire mis à jour selon le trafic.',3000);
+  });
+  $('#altDismiss').addEventListener('click', function(){
+    hideAltBanner();
+    altSnooze = Date.now() + ALT_SNOOZE;   // on n'insiste pas pendant 10 min
+  });
 
 })();
 </script>

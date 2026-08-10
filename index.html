@@ -927,13 +927,13 @@ if (typeof L === 'undefined') {
     if(vehicle.w!=null)   restr.weight = vehicle.w;   // tonnes
 
     var opts = { vehicle_type:'goods', profile_params:{ restrictions:restr } };
-    // « recommended » équilibre déjà temps et distance ; on ne demande qu'un trajet.
     if(avoidTolls) opts.avoid_features = ['tollways'];
 
     var body = {
       coordinates: [[pts.from.lng, pts.from.lat],[pts.to.lng, pts.to.lat]],
       instructions: true, language: 'fr', units: 'm',
-      preference: 'recommended',
+      // Sans péage, on privilégie la rapidité ; sinon on équilibre temps/distance.
+      preference: avoidTolls ? 'fastest' : 'recommended',
       // « goods » plutôt que « hgv » : un camping-car subit les limites physiques,
       // pas les interdictions réservées au transport de marchandises lourd.
       options: opts

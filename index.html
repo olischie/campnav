@@ -327,13 +327,14 @@
   body.light .suggest, body.light #navBottom{ box-shadow:0 6px 20px rgba(30,45,80,.14); }
   body.light #toast{ background:#ffffffee; color:#1a2233; }
 
-  /* Mode nuit : Dark Matter est volontairement très doux. On rehausse contraste
-     et luminosité des seules tuiles — le tracé, les marqueurs et l'interface
-     vivent dans d'autres calques et ne sont donc pas touchés. */
+  /* Mode nuit : on assombrit les tuiles OSM tout en relevant légèrement le
+     contraste. Les routes (claires) restent nettement détachées du fond, sans
+     éblouir de nuit. Seul le calque des tuiles est filtré — le tracé de
+     l'itinéraire, les marqueurs et l'interface gardent leurs couleurs. */
   body:not(.light) .leaflet-tile-pane{
-    filter:contrast(1.45) brightness(1.28) saturate(1.2);
+    filter:brightness(.62) contrast(1.38) saturate(.8);
   }
-  body:not(.light) #map{ background:#05070c; }
+  body:not(.light) #map{ background:#0a0d14; }
 
   #trafficBtn.on{ background:var(--blue); border-color:var(--blue); color:#fff; }
 
@@ -646,9 +647,13 @@ if (typeof L === 'undefined') {
     topo: { name:'Topo', sub:'Relief & sentiers', dark:false, maxZoom:17, retina:false,
       url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
       subdomains:'abc', attr:'&copy; OpenTopoMap (CC-BY-SA) &copy; OpenStreetMap' },
-    dark: { name:'Nuit', sub:'Fond sombre contrasté', dark:true, maxZoom:20, retina:true,
-      url:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-      subdomains:'abcd', attr:'&copy; OpenStreetMap &copy; CARTO' }
+    // Les fonds « dark » classiques dessinent les routes en gris sombre sur noir :
+    // l'écart de luminance est trop faible pour conduire. On reprend donc les
+    // tuiles OSM (routes claires sur fond beige) et on les assombrit : baisser la
+    // luminosité conserve le rapport de contraste, les routes restent lisibles.
+    dark: { name:'Nuit', sub:'OSM assombri', dark:true, maxZoom:19, retina:false,
+      url:'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      subdomains:'abc', attr:'&copy; OpenStreetMap' }
   };
   var BASE_ORDER = ['osm','topo','dark'];
   var currentBase = 'osm', prevLightBase = 'osm', tileLayer=null;
@@ -1792,10 +1797,6 @@ if (typeof L === 'undefined') {
 
   refreshKeyStates();
   vehHint();
-
-  // Trafic en direct dès le démarrage, dès lors qu'une clé TomTom est enregistrée.
-  // Sans clé, on ne réclame rien : le bouton 🚦 reste à disposition.
-  if(ttKey) openTraffic(true);
 
   // Ouvre le panneau au premier chargement pour rendre les onglets visibles
   setTimeout(openSheet, 400);

@@ -4,7 +4,7 @@ Application web de navigation pensée pour les camping-cars, **optimisée mobile
 
 ## ✨ Fonctionnalités
 
-- **Carte interactive** plein écran (Leaflet), avec **choix du fond de carte** dans l'onglet Options : **OpenStreetMap** (contrasté, détaillé), **Topo** (relief & sentiers) et **Nuit** (fond sombre à contraste rehaussé).
+- **Carte interactive** plein écran (Leaflet), avec **choix du fond de carte** dans l'onglet Options : **OpenStreetMap** (contrasté, détaillé), **Topo** (relief & sentiers) et **Nuit** (les mêmes tuiles OSM assombries, pour garder les routes lisibles la nuit).
 - **Recherche d'adresses et de lieux** (Nominatim / OpenStreetMap).
 - **Itinéraire** point à point : **un seul trajet**, équilibrant durée et distance, avec une option **« éviter les péages »**.
 - **Profil du véhicule** (hauteur, poids, largeur, longueur) utilisé de deux façons :
@@ -57,7 +57,7 @@ Les dimensions du profil véhicule partent dans la requête (`travelMode=truck`,
 
 1. Compte gratuit sur [developer.tomtom.com](https://developer.tomtom.com/) — **aucune carte bancaire requise**.
 2. Dans *My Dashboard*, copiez votre clé d'API.
-3. Dans l'onglet **Options**, collez la clé sous « TomTom ». Elle est vérifiée une fois, puis conservée.
+3. Dans l'onglet **Options**, collez la clé sous « TomTom ». Elle est vérifiée une fois, puis conservée. Le trafic n'est **pas** activé automatiquement : touchez **🚦** quand vous le voulez.
 
 ### Openrouteservice (repli)
 
@@ -87,7 +87,6 @@ Il n'est appelé que si au moins une dimension est renseignée : sans profil vé
 
 - [Leaflet](https://leafletjs.com/) — carte interactive
 - [OpenStreetMap](https://www.openstreetmap.org/) — données cartographiques
-- [CARTO](https://carto.com/attributions) — fond Dark Matter (mode nuit)
 - [OpenTopoMap](https://opentopomap.org/) — fond topographique (CC-BY-SA)
 - [Nominatim](https://nominatim.org/) — géocodage
 - [Openrouteservice](https://openrouteservice.org/) — itinéraire poids-lourd libre (repli)

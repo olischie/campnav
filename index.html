@@ -327,6 +327,14 @@
   body.light .suggest, body.light #navBottom{ box-shadow:0 6px 20px rgba(30,45,80,.14); }
   body.light #toast{ background:#ffffffee; color:#1a2233; }
 
+  /* Mode nuit : Dark Matter est volontairement très doux. On rehausse contraste
+     et luminosité des seules tuiles — le tracé, les marqueurs et l'interface
+     vivent dans d'autres calques et ne sont donc pas touchés. */
+  body:not(.light) .leaflet-tile-pane{
+    filter:contrast(1.45) brightness(1.28) saturate(1.2);
+  }
+  body:not(.light) #map{ background:#05070c; }
+
   #trafficBtn.on{ background:var(--blue); border-color:var(--blue); color:#fff; }
 
   /* Onglet Options */
@@ -632,27 +640,21 @@ if (typeof L === 'undefined') {
   // son URL, sa verbosité de zoom, son attribution, s'il est sombre (chrome nuit),
   // ses sous-domaines et s'il gère le @2x (retina). Services gratuits, usage perso.
   var BASEMAPS = {
-    voyager: { name:'Voyager', sub:'CARTO coloré', dark:false, maxZoom:20, retina:true,
-      url:'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-      subdomains:'abcd', attr:'&copy; OpenStreetMap &copy; CARTO' },
     osm: { name:'OpenStreetMap', sub:'Contrasté, détaillé', dark:false, maxZoom:19, retina:false,
       url:'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
       subdomains:'abc', attr:'&copy; OpenStreetMap' },
     topo: { name:'Topo', sub:'Relief & sentiers', dark:false, maxZoom:17, retina:false,
       url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
       subdomains:'abc', attr:'&copy; OpenTopoMap (CC-BY-SA) &copy; OpenStreetMap' },
-    positron: { name:'Épuré', sub:'Clair minimal', dark:false, maxZoom:20, retina:true,
-      url:'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-      subdomains:'abcd', attr:'&copy; OpenStreetMap &copy; CARTO' },
-    dark: { name:'Nuit', sub:'Fond sombre', dark:true, maxZoom:20, retina:true,
+    dark: { name:'Nuit', sub:'Fond sombre contrasté', dark:true, maxZoom:20, retina:true,
       url:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
       subdomains:'abcd', attr:'&copy; OpenStreetMap &copy; CARTO' }
   };
-  var BASE_ORDER = ['voyager','osm','topo','positron','dark'];
-  var currentBase = 'voyager', prevLightBase = 'voyager', tileLayer=null;
+  var BASE_ORDER = ['osm','topo','dark'];
+  var currentBase = 'osm', prevLightBase = 'osm', tileLayer=null;
 
   function applyTiles(){
-    var b = BASEMAPS[currentBase] || BASEMAPS.voyager;
+    var b = BASEMAPS[currentBase] || BASEMAPS.osm;
     if(tileLayer) map.removeLayer(tileLayer);
     var opts = {
       maxZoom:20, maxNativeZoom:b.maxZoom, subdomains:b.subdomains,

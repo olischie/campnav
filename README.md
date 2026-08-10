@@ -4,7 +4,7 @@ Application web de navigation pensée pour les camping-cars, **optimisée mobile
 
 ## ✨ Fonctionnalités
 
-- **Carte interactive** plein écran (Leaflet), avec **choix du fond de carte** dans l'onglet Options : Voyager (coloré), OpenStreetMap (contrasté), Topo (relief & sentiers), Épuré (clair minimal) et Nuit (sombre). Tuiles haute densité sur écrans Retina.
+- **Carte interactive** plein écran (Leaflet), avec **choix du fond de carte** dans l'onglet Options : **OpenStreetMap** (contrasté, détaillé), **Topo** (relief & sentiers) et **Nuit** (fond sombre à contraste rehaussé).
 - **Recherche d'adresses et de lieux** (Nominatim / OpenStreetMap).
 - **Itinéraire** point à point : **un seul trajet**, équilibrant durée et distance, avec une option **« éviter les péages »**.
 - **Profil du véhicule** (hauteur, poids, largeur, longueur) utilisé de deux façons :
@@ -87,7 +87,7 @@ Il n'est appelé que si au moins une dimension est renseignée : sans profil vé
 
 - [Leaflet](https://leafletjs.com/) — carte interactive
 - [OpenStreetMap](https://www.openstreetmap.org/) — données cartographiques
-- [CARTO](https://carto.com/attributions) — fonds Voyager, Positron et Dark Matter
+- [CARTO](https://carto.com/attributions) — fond Dark Matter (mode nuit)
 - [OpenTopoMap](https://opentopomap.org/) — fond topographique (CC-BY-SA)
 - [Nominatim](https://nominatim.org/) — géocodage
 - [Openrouteservice](https://openrouteservice.org/) — itinéraire poids-lourd libre (repli)

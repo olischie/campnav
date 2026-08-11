@@ -11,7 +11,7 @@ Application web de navigation pensée pour les camping-cars, **optimisée mobile
   - avec une **clé TomTom** ou **Openrouteservice**, l'itinéraire est **calculé pour votre gabarit** (les passages trop bas ou limités en tonnage sont évités par le moteur) ;
   - dans tous les cas, les **restrictions rencontrées** le long du trajet sont repérées à partir des données OpenStreetMap et annoncées à l'approche.
 - **Aires & services** : aires de camping-car, campings, parkings, restaurants, supermarchés, sites touristiques (Overpass). Les résultats s'effacent de la carte d'un bouton.
-- **Navigation guidée** : suivi GPS temps réel, carte orientée dans le sens de marche, recentrage, instructions virage par virage, **annonces vocales en français**, **compteur de vitesse** en bas à gauche, **alternative proposée si le trafic fait gagner au moins 10 min** (clé TomTom ; la proposition s'efface au bout de 45 s), bouton trafic accessible en roulant, verrouillage de l'écran, recalcul automatique en cas de sortie d'itinéraire.
+- **Navigation guidée** : suivi GPS temps réel, carte orientée dans le sens de marche, recentrage, instructions virage par virage, **annonces vocales en français** (à 1 km, 500 m et 200 m, puis au moment de tourner), **compteur de vitesse** en bas à gauche, **alternative proposée si le trafic fait gagner au moins 10 min** (clé TomTom ; la proposition s'efface au bout de 45 s), bouton trafic accessible en roulant, verrouillage de l'écran, recalcul automatique en cas de sortie d'itinéraire.
 - **Favoris** et **profil véhicule** sauvegardés localement (persistants d'une session à l'autre).
 - **Trafic TomTom en direct** (optionnel, nécessite votre propre clé — voir plus bas).
 

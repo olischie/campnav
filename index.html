@@ -239,7 +239,9 @@
   /* ---------- Navigation mode ---------- */
   body.nav #top, body.nav #dash, body.nav #sheet{ display:none !important; }
   /* En navigation, seul le bouton trafic reste accessible, sous le bandeau d'instruction */
-  body.nav .fabs{ top:calc(10px + var(--safe-t) + 96px); }
+  /* Le cadre d'instruction fait ~114 px de haut (flèche 52 + 2 boutons empilés 86,
+     plus 28 de marges) : on place les boutons flottants juste en dessous. */
+  body.nav .fabs{ top:calc(10px + var(--safe-t) + 114px + 10px); }
   body.nav .fabs #locBtn{ display:none; }
   #navTop{
     position:absolute; z-index:800; left:10px; right:10px; top:calc(10px + var(--safe-t));
@@ -434,6 +436,7 @@
     #navTop{ gap:10px; padding:12px 12px; }
     #navTop .arrow{ width:46px; height:46px; font-size:26px; }
     #navTop .navdist{ font-size:23px; }
+    body.nav .fabs{ top:calc(10px + var(--safe-t) + 110px + 8px); }
     .tab{ font-size:12px; padding:11px 3px; }
     .field input{ font-size:16px; }
   }
@@ -674,7 +677,7 @@ if (typeof L === 'undefined') {
   var routeWarnings = [], spokenWarn = {};
   // Navigation
   var navActive=false, navWatch=null, navSteps=[], navPtr=0, navMarker=null,
-      offCount=0, spokenFar={}, spokenNear={}, spokenExit={}, voiceOn=true,
+      offCount=0, spokenFar={}, spokenNear={}, voiceOn=true,
       following=true, navLast=null, navIdx=1;
 
   // ---------- Map ----------
@@ -2025,7 +2028,7 @@ if (typeof L === 'undefined') {
     navSteps=flattenSteps(lastRoute);
     if(navSteps.length<2){ toast('Itinéraire trop court pour le guidage.'); return; }
     navPtr=1; navIdx=1; offCount=0;
-    spokenFar={}; spokenNear={}; spokenExit={}; spokenWarn={};
+    spokenFar={}; spokenNear={}; spokenWarn={};
     navActive=true; following=true;
 
     navSize();
@@ -2122,14 +2125,50 @@ if (typeof L === 'undefined') {
     var fr=maneuverFr(step);
     updateNavDisplay(d, fr, d + remainingFrom(navPtr));
 
-    var isExit = step.maneuver.type==='off ramp';
-    if(isExit){
-      if(!spokenExit[navPtr] && d<=800){ spokenExit[navPtr]=true; speak('Dans 800 mètres, '+fr.t.toLowerCase()); }
-      if(!spokenFar[navPtr] && d<=250){ spokenFar[navPtr]=true; speak('Dans '+fmtKm(d)+', '+fr.t.toLowerCase()); }
-      if(!spokenNear[navPtr] && d<=70){ spokenNear[navPtr]=true; speak(fr.t.toLowerCase()); }
-    } else {
-      if(!spokenFar[navPtr] && d<=220){ spokenFar[navPtr]=true; speak('Dans '+fmtKm(d)+', '+fr.t.toLowerCase()); }
-      if(!spokenNear[navPtr] && d<=45){ spokenNear[navPtr]=true; speak(fr.t.toLowerCase()); }
+    announceStep(step, fr, d);
+  }
+
+  // Paliers d'annonce, en mètres. Ce sont des distances rondes : la voix dit
+  // « Dans 500 mètres », jamais « Dans 237 mètres ».
+  var ANNOUNCE_STAGES = [1000, 500, 200];
+  var ANNOUNCE_EXIT   = [2000, 1000, 500, 200];
+  var TURN_NOW = 40;   // au-delà, on parle du virage ; en deçà, on l'ordonne
+
+  // « 1000 » se dit « un kilomètre », « 2000 » « deux kilomètres ».
+  function spokenDistance(m){
+    if(m >= 1000){
+      var km = m/1000;
+      return (km===1 ? 'un kilomètre' : km+' kilomètres');
+    }
+    return m+' mètres';
+  }
+
+  function announceStep(step, fr, d){
+    if(!step || !fr) return;
+    var stages = (step.maneuver.type==='off ramp') ? ANNOUNCE_EXIT : ANNOUNCE_STAGES;
+    if(!spokenFar[navPtr]) spokenFar[navPtr] = {};
+    var done = spokenFar[navPtr];
+
+    // Le virage est là : cet ordre prime sur tout palier resté en attente,
+    // sinon un saut de position ferait annoncer « dans 200 mètres » à 20 m du carrefour.
+    if(d <= TURN_NOW){
+      if(!spokenNear[navPtr]){
+        spokenNear[navPtr] = true;
+        stages.forEach(function(st){ done[st] = true; });
+        speak(fr.t.toLowerCase()+' maintenant');
+      }
+      return;
+    }
+
+    // On ne retient que le palier le plus proche déjà franchi : si le GPS saute
+    // de 900 m à 400 m, on annonce « 500 mètres » une seule fois, pas les deux.
+    var hit = null;
+    for(var i=0;i<stages.length;i++){
+      if(d <= stages[i] && !done[stages[i]]) hit = stages[i];
+    }
+    if(hit != null){
+      stages.forEach(function(st){ if(st >= hit) done[st] = true; });
+      speak('Dans '+spokenDistance(hit)+', '+fr.t.toLowerCase());
     }
   }
 
@@ -2162,7 +2201,7 @@ if (typeof L === 'undefined') {
     clearRouteLayers();
     routeLayer = drawRoute(routeCoords);
     navSteps=flattenSteps(rt); navPtr=1;
-    spokenFar={}; spokenNear={}; spokenExit={}; spokenWarn={};
+    spokenFar={}; spokenNear={}; spokenWarn={};
     routeWarnings=[]; warnLayer.clearLayers();
     warnKey='';
     checkHeights(rt.coords);

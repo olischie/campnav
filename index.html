@@ -237,7 +237,10 @@
   }
 
   /* ---------- Navigation mode ---------- */
-  body.nav #top, body.nav .fabs, body.nav #dash, body.nav #sheet{ display:none !important; }
+  body.nav #top, body.nav #dash, body.nav #sheet{ display:none !important; }
+  /* En navigation, seul le bouton trafic reste accessible, sous le bandeau d'instruction */
+  body.nav .fabs{ top:calc(10px + var(--safe-t) + 96px); }
+  body.nav .fabs #locBtn{ display:none; }
   #navTop{
     position:absolute; z-index:800; left:10px; right:10px; top:calc(10px + var(--safe-t));
     background:var(--blue-d); border:1px solid #1e40af; border-radius:16px;
@@ -306,7 +309,7 @@
   /* Le compteur descend quand le bandeau occupe sa place */
   body.nav.hasalt #speedo{ bottom:calc(150px + var(--safe-b)); }
 
-  /* Compteur de vitesse + limite, en bas à gauche */
+  /* Compteur de vitesse, en bas à gauche */
   #speedo{
     position:absolute; z-index:805; left:12px;
     bottom:calc(84px + var(--safe-b));
@@ -319,23 +322,11 @@
     box-shadow:0 6px 18px rgba(0,0,0,.5);
     display:flex; flex-direction:column; align-items:center; justify-content:center;
   }
-  #speedo .gauge.over{ border-color:var(--red); box-shadow:0 0 0 2px var(--red),0 6px 18px rgba(0,0,0,.5); }
   #speedo .gval{ font-size:26px; font-weight:700; line-height:1; }
   #speedo .gunit{ font-size:9px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin-top:2px; }
-  /* Panneau de limitation façon européenne : disque blanc, anneau rouge */
-  #speedo .limit{
-    width:56px; height:56px; border-radius:50%;
-    background:#fff; border:6px solid var(--red);
-    display:none; align-items:center; justify-content:center;
-    box-shadow:0 6px 18px rgba(0,0,0,.5);
-  }
-  #speedo .limit.show{ display:flex; }
-  #speedo .limit span{ color:#111; font-size:21px; font-weight:800; line-height:1; }
   @media (max-width:400px){
     #speedo .gauge{ width:66px; height:66px; }
     #speedo .gval{ font-size:23px; }
-    #speedo .limit{ width:50px; height:50px; border-width:5px; }
-    #speedo .limit span{ font-size:19px; }
   }
 
   /* ---------- Thème clair (jour) ---------- */
@@ -474,7 +465,6 @@
     <span class="gval mono" id="navSpeed">—</span>
     <span class="gunit">km/h</span>
   </div>
-  <div class="limit" id="speedLimit"><span id="speedLimitVal">—</span></div>
 </div>
 <div id="altBanner">
   <div class="ab-txt"><b id="altTitle">Itinéraire plus rapide</b><small id="altSub">—</small></div>
@@ -686,8 +676,6 @@ if (typeof L === 'undefined') {
   var navActive=false, navWatch=null, navSteps=[], navPtr=0, navMarker=null,
       offCount=0, spokenFar={}, spokenNear={}, spokenExit={}, voiceOn=true,
       following=true, navLast=null, navIdx=1;
-  // Limites de vitesse : segments [{a:[lat,lng], b:[lat,lng], v:kmh}], + garde-fous
-  var speedSegs=[], speedAbort=null, speedKey='', lastLimit=null, speedKX=1, speedKY=110540;
 
   // ---------- Map ----------
   var map = L.map('map', { zoomControl:false, attributionControl:true })
@@ -697,7 +685,7 @@ if (typeof L === 'undefined') {
   // ses sous-domaines et s'il gère le @2x (retina). Services gratuits, usage perso.
   var BASEMAPS = {
     osm: { name:'OpenStreetMap', sub:'Contrasté, détaillé', dark:false, maxZoom:19, retina:false,
-      url:'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
       subdomains:'abc', attr:'&copy; OpenStreetMap' },
     topo: { name:'Topo', sub:'Relief & sentiers', dark:false, maxZoom:17, retina:false,
       url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
@@ -707,7 +695,7 @@ if (typeof L === 'undefined') {
     // tuiles OSM (routes claires sur fond beige) et on les assombrit : baisser la
     // luminosité conserve le rapport de contraste, les routes restent lisibles.
     dark: { name:'Nuit', sub:'OSM assombri', dark:true, maxZoom:19, retina:false,
-      url:'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
       subdomains:'abc', attr:'&copy; OpenStreetMap' }
   };
   var BASE_ORDER = ['osm','topo','dark'];
@@ -718,7 +706,11 @@ if (typeof L === 'undefined') {
     if(tileLayer) map.removeLayer(tileLayer);
     var opts = {
       maxZoom:20, maxNativeZoom:b.maxZoom, subdomains:b.subdomains,
-      detectRetina:!!b.retina, attribution:b.attr, crossOrigin:true
+      detectRetina:!!b.retina, attribution:b.attr, crossOrigin:true,
+      // Confort d'affichage : on garde une marge de tuiles autour de l'écran pour
+      // ne pas les redemander au moindre déplacement, et on évite de saturer le
+      // serveur pendant un zoom ou un panoramique continu.
+      keepBuffer:4, updateWhenZooming:false, updateWhenIdle:false
     };
     tileLayer=L.tileLayer(b.url, opts).addTo(map);
     tileLayer.bringToBack();
@@ -1283,65 +1275,6 @@ if (typeof L === 'undefined') {
          +'|'+mid[0].toFixed(4)+','+mid[1].toFixed(4)
          +'|'+coords[coords.length-1][0].toFixed(4)+','+coords[coords.length-1][1].toFixed(4)
          +'|'+[vehicle.h,vehicle.w,vehicle.l,vehicle.len].join('/');
-  }
-
-  // Convertit une valeur OSM maxspeed en km/h. Gère mph, les valeurs implicites
-  // (walk) et ignore ce qui n'est pas chiffrable (none, signals, variable…).
-  function parseMaxspeed(v){
-    if(v==null) return null;
-    v=String(v).toLowerCase().trim();
-    if(v==='walk') return 10;
-    if(v==='none'||v==='signals'||v==='variable'||v==='unknown') return null;
-    var m=v.match(/([0-9]+(?:\.[0-9]+)?)/); if(!m) return null;
-    var n=parseFloat(m[1]);
-    if(v.indexOf('mph')>-1) return Math.round(n*1.60934);
-    if(v.indexOf('knot')>-1) return Math.round(n*1.852);
-    return Math.round(n);
-  }
-
-  // Récupère les limites de vitesse le long du trajet (un seul appel, au départ
-  // de la navigation). Chaque way OSM devient une suite de segments géoréférencés.
-  function fetchSpeedLimits(coords){
-    if(speedAbort){ speedAbort.abort(); speedAbort=null; }
-    var poly = corridor(coords);
-    if(poly.length<2){ speedSegs=[]; return; }
-    var sig = poly.length+'|'+poly[0][0].toFixed(3)+'|'+poly[poly.length-1][0].toFixed(3);
-    if(sig===speedKey && speedSegs.length) return; // déjà chargé pour ce trajet
-    var polyStr = poly.map(function(pp){ return pp[0].toFixed(5)+','+pp[1].toFixed(5); }).join(',');
-    if(polyStr.length>60000){ speedSegs=[]; return; }
-
-    var q='[out:json][timeout:60];way["maxspeed"](around:35,'+polyStr+');out geom 500;';
-    speedAbort = ('AbortController' in window) ? new AbortController() : null;
-    overpassFetch(q, speedAbort ? speedAbort.signal : undefined)
-      .then(function(d){
-        var lat0=poly[Math.floor(poly.length/2)][0];
-        var kx=Math.cos(lat0*Math.PI/180)*111320, ky=110540;
-        var segs=[];
-        (d.elements||[]).forEach(function(el){
-          if(!el.geometry || el.geometry.length<2) return;
-          var v=parseMaxspeed((el.tags||{}).maxspeed);
-          if(v==null) return;
-          for(var i=1;i<el.geometry.length;i++){
-            var g0=el.geometry[i-1], g1=el.geometry[i];
-            segs.push({ ax:g0.lon*kx, ay:g0.lat*ky, bx:g1.lon*kx, by:g1.lat*ky, v:v });
-          }
-        });
-        speedSegs=segs; speedKX=kx; speedKY=ky; speedKey=sig;
-      })
-      .catch(function(e){ if(!(e && e.name==='AbortError')) speedSegs=[]; });
-  }
-
-  // Limite applicable à la position courante : segment le plus proche (< 30 m).
-  // Segments déjà projetés (speedKX/KY) : simple balayage, sans trigonométrie.
-  function speedLimitAt(lat, lng){
-    if(!speedSegs.length) return null;
-    var px=lng*speedKX, py=lat*speedKY, best=Infinity, bestV=null;
-    for(var i=0;i<speedSegs.length;i++){
-      var sg=speedSegs[i];
-      var r=segNear(px,py, sg.ax,sg.ay, sg.bx,sg.by);
-      if(r[2]<best){ best=r[2]; bestV=sg.v; }
-    }
-    return Math.sqrt(best)<=30 ? bestV : null;
   }
 
   function checkHeights(coords){
@@ -2107,8 +2040,7 @@ if (typeof L === 'undefined') {
     if(navMarker){ map.removeLayer(navMarker); navMarker=null; }
     speak('Navigation démarrée.', true);
     updateNavDisplay(null);
-    lastLimit=null; $('#speedLimit').classList.remove('show'); $('#speedoGauge').classList.remove('over');
-    fetchSpeedLimits(routeCoords);
+
     // Surveillance du trafic : uniquement avec TomTom, qui seul voit le trafic.
     hideAltBanner(); altSnooze=0; altBusy=false;
     if(altTimer){ clearInterval(altTimer); altTimer=null; }
@@ -2129,10 +2061,8 @@ if (typeof L === 'undefined') {
     if(navWatch!=null){ navigator.geolocation.clearWatch(navWatch); navWatch=null; }
     if(navMarker){ map.removeLayer(navMarker); navMarker=null; }
     if('speechSynthesis' in window) window.speechSynthesis.cancel();
-    if(speedAbort){ speedAbort.abort(); speedAbort=null; }
     if(altTimer){ clearInterval(altTimer); altTimer=null; }
     hideAltBanner();
-    lastLimit=null;
     if(routeCoords) map.fitBounds(L.latLngBounds(routeCoords),{padding:[50,50]});
     openSheet();
   }
@@ -2145,7 +2075,6 @@ if (typeof L === 'undefined') {
     var sp = pos.coords.speed;
     var kmh = (sp!=null && !isNaN(sp) && sp>=0) ? Math.round(sp*3.6) : null;
     $('#navSpeed').textContent = (kmh!=null) ? kmh : '—';
-    updateSpeedLimit(lat, lng, kmh);
 
     var counter = following ? rotateHeadingUp(hd) : contAngle;
     if(navMarker) navMarker.setLatLng(here).setIcon(navDot(counter));
@@ -2204,27 +2133,6 @@ if (typeof L === 'undefined') {
     }
   }
 
-  // Met à jour le panneau de limite et signale un éventuel dépassement.
-  var lastLimitCheck=0;
-  function updateSpeedLimit(lat, lng, kmh){
-    var now=Date.now();
-    // Le calcul balaie tous les segments : on le limite à ~2 Hz pour ménager le CPU.
-    if(now-lastLimitCheck>=450){
-      lastLimitCheck=now;
-      lastLimit = speedLimitAt(lat, lng);
-    }
-    var box=$('#speedLimit'), val=$('#speedLimitVal'), gauge=$('#speedoGauge');
-    if(lastLimit!=null){
-      val.textContent=lastLimit;
-      box.classList.add('show');
-      var over = (kmh!=null && kmh > lastLimit + 3);
-      gauge.classList.toggle('over', over);
-    } else {
-      box.classList.remove('show');
-      gauge.classList.remove('over');
-    }
-  }
-
   // Distance restante après la manœuvre `ptr` (la distance jusqu'à elle est ajoutée par l'appelant)
   function remainingFrom(ptr){
     var rem=0;
@@ -2258,7 +2166,6 @@ if (typeof L === 'undefined') {
     routeWarnings=[]; warnLayer.clearLayers();
     warnKey='';
     checkHeights(rt.coords);
-    speedKey=''; fetchSpeedLimits(rt.coords);
     if(spokenMsg) speak(spokenMsg, true);
   }
 
@@ -2275,8 +2182,10 @@ if (typeof L === 'undefined') {
   // Nécessite TomTom (seul moteur branché sur le trafic en direct). Toutes les
   // 3 minutes, on redemande le meilleur trajet depuis la position courante et on
   // le compare au temps restant estimé sur l'itinéraire suivi.
-  var altTimer=null, altCand=null, altSnooze=0, altBusy=false;
-  var ALT_PERIOD=180000, ALT_MIN_GAIN=180, ALT_MIN_RATIO=0.08, ALT_SNOOZE=600000;
+  var altTimer=null, altCand=null, altSnooze=0, altBusy=false, altHideTimer=null;
+  // Gain minimal de 10 min : en dessous, un déroutement ne vaut pas la peine.
+  var ALT_PERIOD=180000, ALT_MIN_GAIN=600, ALT_MIN_RATIO=0.08,
+      ALT_SNOOZE=600000, ALT_VISIBLE=45000;
 
   function remainingMeters(){
     if(!navSteps.length || !navLast) return 0;
@@ -2294,6 +2203,7 @@ if (typeof L === 'undefined') {
 
   function hideAltBanner(){
     altCand=null;
+    if(altHideTimer){ clearTimeout(altHideTimer); altHideTimer=null; }
     $('#altBanner').classList.remove('show');
     document.body.classList.remove('hasalt');
   }
@@ -2303,7 +2213,7 @@ if (typeof L === 'undefined') {
     if(Date.now() < altSnooze) return;
     if(altCand) return;                       // une proposition est déjà à l'écran
     var curRem = remainingSeconds();
-    if(curRem < 420) return;                  // moins de 7 min : inutile de dérouter
+    if(curRem < ALT_MIN_GAIN + 120) return;   // trop court pour espérer un tel gain
     altBusy=true;
     tomtomFetch({ lat:navLast.lat, lng:navLast.lng })
       .then(function(routes){
@@ -2318,6 +2228,10 @@ if (typeof L === 'undefined') {
         $('#altBanner').classList.add('show');
         document.body.classList.add('hasalt');
         speak('Un itinéraire plus rapide est disponible.', false);
+        // Sans réponse au bout de 45 s, la proposition s'efface d'elle-même :
+        // au volant, un bandeau qui s'éternise gêne plus qu'il n'aide.
+        if(altHideTimer) clearTimeout(altHideTimer);
+        altHideTimer=setTimeout(function(){ hideAltBanner(); }, ALT_VISIBLE);
       })
       .catch(function(){ altBusy=false; });
   }

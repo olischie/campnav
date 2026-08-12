@@ -3,8 +3,8 @@
 //  - coquille de l'appli (index + libs) : "network-first" puis cache (toujours à jour si en ligne)
 //  - tuiles de carte : "cache-first" (les zones déjà consultées restent dispo hors-ligne)
 
-const SHELL_CACHE = 'cc-shell-v6';
-const TILE_CACHE  = 'cc-tiles-v6';
+const SHELL_CACHE = 'cc-shell-v7';
+const TILE_CACHE  = 'cc-tiles-v7';
 
 const SHELL_ASSETS = [
   './',
@@ -15,12 +15,12 @@ const SHELL_ASSETS = [
   './icon-512-maskable.png',
   './apple-touch-icon.png',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css',
-  'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js'
+  'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',
+  'https://unpkg.com/protomaps-leaflet/dist/protomaps-leaflet.js'
 ];
 
-// Hôtes dont on met les tuiles en cache pour l'usage hors-ligne
-// endsWith : couvre aussi les sous-domaines (a./b./c.tile.openstreetmap.org)
-const TILE_HOSTS = ['tile.openstreetmap.org', 'tile.opentopomap.org'];
+// Hôte dont on met les tuiles vectorielles Protomaps en cache pour l'usage hors-ligne.
+const TILE_HOSTS = ['api.protomaps.com'];
 
 // Services en ligne : jamais interceptés, jamais mis en cache.
 // (api.tomtom.com contient la clé d'API dans l'URL : elle ne doit rien laisser sur le disque.)

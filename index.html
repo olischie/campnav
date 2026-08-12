@@ -580,6 +580,12 @@
 
       <label class="lb">Fond de carte</label>
       <div class="basegrid" id="baseChips"></div>
+      <p>Le fond de carte est fourni par <b>Protomaps</b> (tuiles vectorielles). Une clé gratuite est nécessaire pour l'afficher — inscription sur <a href="https://protomaps.com/dashboard" target="_blank" rel="noopener">protomaps.com/dashboard</a>.</p>
+      <input class="inp" id="pmInput" type="password" placeholder="Clé Protomaps"
+             autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <p class="state" id="pmState"></p>
+      <button class="btn" id="pmSave">Enregistrer la clé Protomaps</button>
+      <button class="btn ghost" id="pmForget" style="display:none">Oublier la clé Protomaps</button>
 
       <label class="lb">Luminosité de la carte</label>
       <div class="slider-row">
@@ -618,22 +624,26 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"
         crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<!-- protomaps-leaflet : rendu des tuiles vectorielles Protomaps sur une carte Leaflet -->
+<script src="https://unpkg.com/protomaps-leaflet/dist/protomaps-leaflet.js"
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script>
-// Si Leaflet n'a pas pu être chargé (réseau, blocage, CDN indisponible), on le dit
-// clairement : sans ce garde-fou, tout le script qui suit échoue et l'écran reste vide.
-if (typeof L === 'undefined') {
+// Si Leaflet ou protomaps-leaflet n'a pas pu être chargé (réseau, blocage, CDN
+// indisponible), on le dit clairement : sans ce garde-fou, tout le script qui
+// suit échoue et l'écran reste vide.
+if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
   document.getElementById('map').innerHTML =
     '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;' +
     'padding:24px;text-align:center;font:15px/1.6 -apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;' +
     'color:#1a2233;background:#eef1f6">' +
     '<div><b>La carte n\'a pas pu être chargée.</b><br>' +
-    'La bibliothèque Leaflet est inaccessible. Vérifiez votre connexion, puis rechargez la page.</div></div>';
+    'Leaflet ou protomaps-leaflet est inaccessible. Vérifiez votre connexion, puis rechargez la page.</div></div>';
 }
 </script>
 <script>
 (function(){
   "use strict";
-  if (typeof L === 'undefined') return;   // rien à initialiser sans Leaflet
+  if (typeof L === 'undefined' || typeof protomapsL === 'undefined') return;   // rien à initialiser sans Leaflet / protomaps-leaflet
 
   // Instances Overpass, essayées dans l'ordre. Les serveurs publics renvoient un
   // 429 / 504 (corps HTML, pas du JSON) quand ils sont saturés : on bascule alors
@@ -681,60 +691,65 @@ if (typeof L === 'undefined') {
       following=true, navLast=null, navIdx=1;
 
   // ---------- Map ----------
-  var map = L.map('map', { zoomControl:false, attributionControl:true })
+  // fadeAnimation:false — le rendu des tuiles vectorielles Protomaps est asynchrone
+  // (fetch + décodage + peinture). Le fondu par défaut de Leaflet peut invalider une
+  // tuile encore en cours de rendu (ex. recentrage sur la géolocalisation au démarrage)
+  // avant qu'elle n'atteigne jamais son opacité finale, la laissant invisible en permanence.
+  var map = L.map('map', { zoomControl:false, attributionControl:true, fadeAnimation:false })
              .setView([50.85, 4.35], 12); // Bruxelles par défaut
-  // Catalogue de fonds de carte, choisis dans l'onglet Options. Chacun déclare
-  // son URL, sa verbosité de zoom, son attribution, s'il est sombre (chrome nuit),
-  // ses sous-domaines et s'il gère le @2x (retina). Services gratuits, usage perso.
+
+  // Clé Protomaps (fond de carte), saisie dans l'onglet Options. Lue tout de
+  // suite, avant le premier rendu : sans elle, aucune tuile ne peut s'afficher.
+  var pmKey = '';
+  try{ pmKey = localStorage.getItem('cc_pmkey') || ''; }catch(e){}
+  function pmTilesUrl(){
+    return 'https://api.protomaps.com/tiles/v4/{z}/{x}/{y}.mvt?key='+encodeURIComponent(pmKey);
+  }
+
+  // Catalogue de fonds de carte, choisis dans l'onglet Options. Une seule
+  // source vectorielle (api.protomaps.com) : chaque entrée n'est qu'une
+  // palette (« flavor », au sens protomaps-leaflet) différente, pas des tuiles
+  // distinctes à télécharger.
   var BASEMAPS = {
-    osm: { name:'OpenStreetMap', sub:'Contrasté, détaillé', dark:false, maxZoom:19, retina:false,
-      url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      subdomains:'abc', attr:'&copy; OpenStreetMap' },
-    topo: { name:'Topo', sub:'Relief & sentiers', dark:false, maxZoom:17, retina:false,
-      url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
-      subdomains:'abc', attr:'&copy; OpenTopoMap (CC-BY-SA) &copy; OpenStreetMap' },
-    // Les fonds « dark » classiques dessinent les routes en gris sombre sur noir :
-    // l'écart de luminance est trop faible pour conduire. On reprend donc les
-    // tuiles OSM (routes claires sur fond beige) et on les assombrit : baisser la
-    // luminosité conserve le rapport de contraste, les routes restent lisibles.
-    dark: { name:'Nuit', sub:'OSM assombri', dark:true, maxZoom:19, retina:false,
-      url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      subdomains:'abc', attr:'&copy; OpenStreetMap' }
+    light: { name:'Clair', sub:'Fond vectoriel Protomaps', dark:false, flavor:'light',
+      attr:'&copy; <a href="https://protomaps.com" target="_blank" rel="noopener">Protomaps</a> &copy; OpenStreetMap' },
+    gray:  { name:'Contraste', sub:'Niveaux de gris', dark:false, flavor:'grayscale',
+      attr:'&copy; <a href="https://protomaps.com" target="_blank" rel="noopener">Protomaps</a> &copy; OpenStreetMap' },
+    dark:  { name:'Nuit', sub:'Fond vectoriel sombre', dark:true, flavor:'dark',
+      attr:'&copy; <a href="https://protomaps.com" target="_blank" rel="noopener">Protomaps</a> &copy; OpenStreetMap' }
   };
-  var BASE_ORDER = ['osm','topo','dark'];
-  var currentBase = 'osm', prevLightBase = 'osm', tileLayer=null;
+  var BASE_ORDER = ['light','gray','dark'];
+  var currentBase = 'light', prevLightBase = 'light', tileLayer=null;
 
   function applyTiles(){
-    var b = BASEMAPS[currentBase] || BASEMAPS.osm;
-    if(tileLayer) map.removeLayer(tileLayer);
-    var opts = {
-      maxZoom:20, maxNativeZoom:b.maxZoom, subdomains:b.subdomains,
-      detectRetina:!!b.retina, attribution:b.attr, crossOrigin:true,
-      // Confort d'affichage : on garde une marge de tuiles autour de l'écran pour
-      // ne pas les redemander au moindre déplacement, et on évite de saturer le
-      // serveur pendant un zoom ou un panoramique continu.
-      keepBuffer:4, updateWhenZooming:false, updateWhenIdle:false
-    };
-    tileLayer=L.tileLayer(b.url, opts).addTo(map);
-    tileLayer.bringToBack();
-    // Chrome sombre + couleur de barre système selon le fond choisi
+    var b = BASEMAPS[currentBase] || BASEMAPS.light;
+    if(tileLayer){ map.removeLayer(tileLayer); tileLayer=null; }
+    // Chrome sombre + couleur de barre système selon le fond choisi, même sans clé.
     document.body.classList.toggle('light', !b.dark);
     var meta = document.getElementById('themeColorMeta');
     if(meta) meta.setAttribute('content', b.dark ? '#12161f' : '#eef1f6');
+    if(!pmKey){
+      // toast() n'est défini que plus bas dans ce script (mais hissé) ; toastEl
+      // n'est affecté qu'ensuite, donc on diffère l'appel après ce tour de boucle.
+      setTimeout(function(){ toast('Ajoutez une clé Protomaps gratuite dans l\'onglet Options pour afficher le fond de carte.', 6000); }, 300);
+      applyTileFilter();
+      return;
+    }
+    tileLayer = protomapsL.leafletLayer({ url: pmTilesUrl(), flavor: b.flavor, attribution: b.attr }).addTo(map);
+    tileLayer.bringToBack();
     applyTileFilter();
   }
 
-  // Luminosité réglable (1 = tuiles d'origine). Le mode nuit part de 0,62 et le
-  // curseur module ce point de départ, pour rester cohérent dans les deux modes.
+  // Luminosité réglable (1 = thème d'origine) : le curseur agit uniformément,
+  // le thème Protomaps choisi (clair/contraste/nuit) porte déjà son propre contraste.
   var mapBright = 1;
   function applyTileFilter(){
-    var night = !!(BASEMAPS[currentBase] && BASEMAPS[currentBase].dark);
-    var b = (night ? 0.62 : 1) * mapBright;
+    var b = mapBright;
     if(b < 0.15) b = 0.15;
     var st = document.body.style;
     st.setProperty('--tb', b.toFixed(3));
-    st.setProperty('--tc', night ? '1.38' : '1.06');
-    st.setProperty('--ts', night ? '0.8' : '1');
+    st.setProperty('--tc', '1');
+    st.setProperty('--ts', '1');
   }
   document.body.classList.add('light'); // fond clair par défaut
   applyTiles();
@@ -1699,13 +1714,16 @@ if (typeof L === 'undefined') {
     try{ if(val) localStorage.setItem(name,val); else localStorage.removeItem(name); }catch(e){}
   }
   function refreshKeyStates(){
-    var a=$('#ttState'), b=$('#orsState');
+    var a=$('#ttState'), b=$('#orsState'), c=$('#pmState');
     a.textContent = ttKey ? '✓ Clé enregistrée' : 'Aucune clé enregistrée';
     a.className = 'state'+(ttKey?' on':'');
     b.textContent = orsKey ? '✓ Clé enregistrée' : 'Aucune clé enregistrée';
     b.className = 'state'+(orsKey?' on':'');
+    c.textContent = pmKey ? '✓ Clé enregistrée' : 'Aucune clé enregistrée — le fond de carte ne s\'affiche pas';
+    c.className = 'state'+(pmKey?' on':'');
     $('#keyForget').style.display = ttKey ? 'block':'none';
     $('#orsForget').style.display = orsKey ? 'block':'none';
+    $('#pmForget').style.display = pmKey ? 'block':'none';
   }
   // L'onglet Options porte les clés : y basculer met à jour l'affichage des états.
   function openOptionsTab(){ refreshKeyStates(); document.querySelector('.tab[data-tab=opt]').click(); }
@@ -1794,6 +1812,43 @@ if (typeof L === 'undefined') {
     refreshKeyStates(); vehHint();
     toast('Clé Openrouteservice oubliée.');
     if(pts.from && pts.to && !ttKey) calcRoute();
+  });
+
+  // Vérifie la clé Protomaps sur une tuile connue (même logique que TomTom/ORS :
+  // seul un refus explicite 401/403 la rejette, une coupure réseau ne l'efface pas).
+  function probePmKey(k){
+    var u='https://api.protomaps.com/tiles/v4/0/0/0.mvt?key='+encodeURIComponent(k);
+    return fetch(u).then(function(r){
+      if(r.status===401 || r.status===403) throw new Error('invalid');
+      return true;
+    }).catch(function(e){
+      if(e && e.message==='invalid') throw e;
+      return true;
+    });
+  }
+
+  $('#pmSave').addEventListener('click', function(){
+    var k=($('#pmInput').value||'').trim();
+    if(!k){ toast('Collez d\'abord votre clé.'); return; }
+    toast('<span class="spin"></span>Vérification de la clé…',0);
+    probePmKey(k).then(function(){
+      hideToast();
+      pmKey=k; storeKey('cc_pmkey',k);
+      $('#pmInput').value='';
+      refreshKeyStates();
+      applyTiles();
+      toast('🗺️ Fond de carte Protomaps activé.',2500);
+    }).catch(function(){
+      hideToast();
+      toast('Protomaps a refusé cette clé. Vérifiez-la dans votre tableau de bord.',5000);
+    });
+  });
+
+  $('#pmForget').addEventListener('click', function(){
+    pmKey=''; storeKey('cc_pmkey','');
+    refreshKeyStates();
+    applyTiles();
+    toast('Clé Protomaps oubliée. Le fond de carte ne s\'affichera plus.',4000);
   });
 
   function openTraffic(silent){

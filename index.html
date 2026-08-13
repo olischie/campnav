@@ -937,11 +937,13 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
       var rt=d.routes[0];
       var steps=[];
       (rt.legs||[]).forEach(function(leg){ (leg.steps||[]).forEach(function(s){ steps.push(s); }); });
-      return {
+      // Tableau, comme tomtomFetch/orsFetch : fetchRoutes()/calcRoute() attendent
+      // partout une liste d'alternatives, même réduite à une seule ici.
+      return [{
         coords: rt.geometry.coordinates.map(function(p){ return [p[1],p[0]]; }),
         distance: rt.distance, duration: rt.duration, steps: steps,
         engine:'osrm', gabarit:false, tollFree:false
-      };
+      }];
     });
   }
 
@@ -1162,6 +1164,14 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
       L.polyline(coords,{color:'#0b1220',weight:11,opacity:.85,lineJoin:'round',lineCap:'round'}),
       L.polyline(coords,{color:'#1d6fff',weight:6,opacity:1,lineJoin:'round',lineCap:'round'})
     ]).addTo(map);
+  }
+
+  // En navigation, efface la portion déjà parcourue : ne reste affiché que ce
+  // qu'il reste à parcourir, avec un bord net sur la position actuelle.
+  function trimRoute(here, idx){
+    if(!routeLayer || !routeCoords) return;
+    var remaining = [[here.lat, here.lng]].concat(routeCoords.slice(idx));
+    routeLayer.eachLayer(function(ly){ ly.setLatLngs(remaining); });
   }
 
   // Trace toutes les alternatives (gris) puis la sélectionnée (bleu, au-dessus)
@@ -1692,7 +1702,8 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
   // ================= Recentrage / suivi =================
   $('#recenter').addEventListener('click', function(){
     following=true; this.classList.remove('show');
-    if(navLast){ if(map.getZoom()<16) map.setZoom(16); panFollow(navLast); }
+    lastAutoZoom=null; // reprend la main sur le zoom, quel que soit le niveau laissé manuellement
+    if(navLast){ panFollow(navLast); }
   });
   // Dès que l'utilisateur déplace la carte en navigation, on remet le nord en haut :
   // Leaflet ignore la transform CSS, un glissement sur carte tournée irait de travers.
@@ -2070,6 +2081,30 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
   // carte sur le véhicule suffit, la rotation se fait autour de ce point.
   function panFollow(here){ map.panTo(here, {animate:true, duration:.5}); }
 
+  // ---------- Zoom automatique ----------
+  // Vue large à haute vitesse (autoroute), rapprochée à basse vitesse (ville,
+  // arrêt), et resserrée d'un cran à l'approche immédiate d'une manœuvre.
+  var ZOOM_SPEED_STAGES = [[20,18], [50,17], [90,16], [Infinity,15]];
+  var lastAutoZoom = null;
+  function autoZoomFor(kmh, d){
+    var v = kmh==null ? 30 : kmh; // vitesse inconnue : hypothèse ville/route
+    var z = ZOOM_SPEED_STAGES[ZOOM_SPEED_STAGES.length-1][1];
+    for(var i=0;i<ZOOM_SPEED_STAGES.length;i++){
+      if(v <= ZOOM_SPEED_STAGES[i][0]){ z = ZOOM_SPEED_STAGES[i][1]; break; }
+    }
+    if(d!=null && d<150) z = Math.min(19, z+1);
+    return z;
+  }
+  function applyAutoZoom(kmh, d){
+    if(!following) return;
+    var z = autoZoomFor(kmh, d);
+    // animate:false — un zoom animé en parallèle du panFollow (lui aussi animé)
+    // fait entrer les deux animations Leaflet en conflit et peut casser le rendu
+    // du tracé (SVG réduit à un point). Le zoom change peu souvent ; le voir
+    // s'ajuster net, sans transition, n'est pas gênant en conduite.
+    if(z !== lastAutoZoom){ lastAutoZoom = z; map.setZoom(z, {animate:false}); }
+  }
+
   function navDot(counter){
     var rot = (counter!=null && !isNaN(counter)) ? counter : 0;
     return L.divIcon({className:'',iconSize:[22,22],iconAnchor:[11,11],
@@ -2084,7 +2119,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     if(navSteps.length<2){ toast('Itinéraire trop court pour le guidage.'); return; }
     navPtr=1; navIdx=1; offCount=0;
     spokenFar={}; spokenNear={}; spokenWarn={};
-    navActive=true; following=true;
+    navActive=true; following=true; lastAutoZoom=null;
 
     navSize();
     document.body.classList.add('nav');
@@ -2121,6 +2156,8 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     if('speechSynthesis' in window) window.speechSynthesis.cancel();
     if(altTimer){ clearInterval(altTimer); altTimer=null; }
     hideAltBanner();
+    // Le tracé a été effacé au fil de la route pendant le guidage : on le réaffiche en entier.
+    if(routeLayer && routeCoords) routeLayer.eachLayer(function(ly){ ly.setLatLngs(routeCoords); });
     if(routeCoords) map.fitBounds(L.latLngBounds(routeCoords),{padding:[50,50]});
     openSheet();
   }
@@ -2147,6 +2184,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     var near = routeXY ? nearestOn(routeXY, lat, lng, navIdx-40, navIdx+400) : null;
     if(near){
       navIdx = near.i;
+      trimRoute(L.latLng(near.lat, near.lng), navIdx);
       if(near.d>60){
         offCount++;
         if(offCount>=3){
@@ -2169,6 +2207,8 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
       loc=step.maneuver.location; target=L.latLng(loc[1],loc[0]); d=map.distance(here,target);
     }
 
+    applyAutoZoom(kmh, d);
+
     if(navSteps[navPtr].maneuver.type==='arrive' && d<30){
       updateNavDisplay(0, maneuverFr(navSteps[navPtr]));
       speak('Vous êtes arrivé à destination.', true);
@@ -2184,9 +2224,10 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
   }
 
   // Paliers d'annonce, en mètres. Ce sont des distances rondes : la voix dit
-  // « Dans 500 mètres », jamais « Dans 237 mètres ».
-  var ANNOUNCE_STAGES = [1000, 500, 200];
-  var ANNOUNCE_EXIT   = [2000, 1000, 500, 200];
+  // « Dans 500 mètres », jamais « Dans 237 mètres ». Au plus 2 paliers d'anticipation
+  // + l'ordre « maintenant » au virage : jamais plus de 3 indications par manœuvre.
+  var ANNOUNCE_STAGES = [500, 200];
+  var ANNOUNCE_EXIT   = [1000, 300];
   var TURN_NOW = 40;   // au-delà, on parle du virage ; en deçà, on l'ordonne
 
   // « 1000 » se dit « un kilomètre », « 2000 » « deux kilomètres ».

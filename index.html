@@ -580,12 +580,6 @@
 
       <label class="lb">Fond de carte</label>
       <div class="basegrid" id="baseChips"></div>
-      <p>Le fond de carte est fourni par <b>Protomaps</b> (tuiles vectorielles). Une clé gratuite est nécessaire pour l'afficher — inscription sur <a href="https://protomaps.com/dashboard" target="_blank" rel="noopener">protomaps.com/dashboard</a>.</p>
-      <input class="inp" id="pmInput" type="password" placeholder="Clé Protomaps"
-             autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
-      <p class="state" id="pmState"></p>
-      <button class="btn" id="pmSave">Enregistrer la clé Protomaps</button>
-      <button class="btn ghost" id="pmForget" style="display:none">Oublier la clé Protomaps</button>
 
       <label class="lb">Luminosité de la carte</label>
       <div class="slider-row">
@@ -596,6 +590,13 @@
         <output id="brightOut">100 %</output>
       </div>
       <p>Assombrissez la carte de nuit ou éclaircissez-la en plein soleil. N'affecte que le fond : l'itinéraire et les repères gardent leur éclat.</p>
+
+      <p>Le fond de carte est fourni par <b>Protomaps</b> (tuiles vectorielles). Une clé gratuite est nécessaire pour l'afficher — inscription sur <a href="https://protomaps.com/dashboard" target="_blank" rel="noopener">protomaps.com/dashboard</a>.</p>
+      <input class="inp" id="pmInput" type="password" placeholder="Clé Protomaps"
+             autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <p class="state" id="pmState"></p>
+      <button class="btn" id="pmSave">Enregistrer la clé Protomaps</button>
+      <button class="btn ghost" id="pmForget" style="display:none">Oublier la clé Protomaps</button>
 
       <label class="lb">Clés d'activation</label>
       <p>L'appli essaie les moteurs dans cet ordre : <b>TomTom</b> (gabarit + trafic), puis <b>Openrouteservice</b> (gabarit, sans trafic), puis <b>OSRM</b> (voiture, dernier recours). Chaque clé est facultative.</p>
@@ -926,13 +927,25 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
   // Format interne unifié :
   // {coords:[[lat,lng]], distance, duration, steps:[{distance,name,maneuver:{type,modifier,location:[lng,lat],exit}}], engine, gabarit}
 
+  // Abandonne une requête au bout de `ms` : un moteur qui traîne (réseau capricieux,
+  // serveur saturé) ne doit pas retarder le repli sur le suivant — c'est surtout
+  // sensible pendant un recalcul en navigation, où la rapidité prime.
+  function fetchTimeout(url, opts, ms){
+    if(!('AbortController' in window)) return fetch(url, opts);
+    var ac = new AbortController();
+    var t = setTimeout(function(){ ac.abort(); }, ms);
+    var o = {}; for(var k in (opts||{})) o[k]=opts[k];
+    o.signal = ac.signal;
+    return fetch(url, o).then(function(r){ clearTimeout(t); return r; }, function(e){ clearTimeout(t); throw e; });
+  }
+
   // OSRM ne sait ni équilibrer temps/distance finement ni éviter les péages :
   // c'est le moteur de dernier recours. On demande un seul trajet.
-  function osrmFetch(){
+  function osrmFetch(ms){
     var c = pts.from.lng+','+pts.from.lat+';'+pts.to.lng+','+pts.to.lat;
     var url='https://router.project-osrm.org/route/v1/driving/'+c+
             '?overview=full&geometries=geojson&steps=true&alternatives=false';
-    return fetch(url).then(function(r){return r.json();}).then(function(d){
+    return fetchTimeout(url, null, ms).then(function(r){return r.json();}).then(function(d){
       if(!d.routes || !d.routes.length) throw new Error('no route');
       var rt=d.routes[0];
       var steps=[];
@@ -980,7 +993,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
 
   // `origin` permet de repartir de la position courante (surveillance du trafic
   // en navigation) au lieu du point de départ saisi.
-  function tomtomFetch(origin){
+  function tomtomFetch(origin, ms){
     var v = ttVehicleQuery();
     var o = origin || pts.from;
     var c = o.lat+','+o.lng+':'+pts.to.lat+','+pts.to.lng;
@@ -992,7 +1005,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
             '&traffic=true&travelMode='+v.mode+v.qs+
             (avoidTolls?'&avoid=tollRoads':'')+
             '&instructionsType=coded&language=fr-FR';
-    return fetch(url).then(function(r){
+    return fetchTimeout(url, null, ms).then(function(r){
       if(r.status===401 || r.status===403) throw new Error('tomtom-auth');
       if(!r.ok) throw new Error('tomtom '+r.status);
       return r.json();
@@ -1044,7 +1057,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
       default: return {type:'continue', modifier:'straight'};
     }
   }
-  function orsFetch(){
+  function orsFetch(ms){
     var restr={};
     if(vehicle.h!=null)   restr.height = vehicle.h;   // m
     if(vehicle.l!=null)   restr.width  = vehicle.l;   // m
@@ -1064,11 +1077,11 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
       options: opts
     };
 
-    return fetch('https://api.openrouteservice.org/v2/directions/driving-hgv/geojson', {
+    return fetchTimeout('https://api.openrouteservice.org/v2/directions/driving-hgv/geojson', {
       method:'POST',
       headers:{ 'Authorization': orsKey, 'Content-Type':'application/json', 'Accept':'application/geo+json' },
       body: JSON.stringify(body)
-    }).then(function(r){
+    }, ms).then(function(r){
       if(r.status===401 || r.status===403) throw new Error('ors-auth');
       if(r.status===429) throw new Error('ors-quota');
       if(!r.ok) throw new Error('ors '+r.status);
@@ -1106,7 +1119,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
         avoidTolls=false;
         var chip=$('#tollChip'); if(chip){ chip.classList.remove('on'); chip.dataset.on='0'; chip.setAttribute('aria-checked','false'); }
         toast('Aucun itinéraire sans péage trouvé — péages autorisés.',4000);
-        return orsFetch();
+        return orsFetch(ms);
       }
       throw e;
     });
@@ -1118,27 +1131,33 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
 
   // Cascade : TomTom (gabarit + trafic) -> ORS (gabarit) -> OSRM (voiture).
   // ORS n'est appelé que si des dimensions sont renseignées : sinon il n'apporte rien.
-  function fetchOrsOrOsrm(quiet){
+  // `ms` borne chaque tentative : un moteur qui traîne bascule vite sur le suivant
+  // plutôt que de laisser le recalcul (surtout en navigation) traîner en longueur.
+  function fetchOrsOrOsrm(quiet, ms){
     if(orsKey && hasDims()){
-      return orsFetch().catch(function(e){
+      return orsFetch(ms).catch(function(e){
         if(!quiet){
           if(e && e.message==='ors-auth')  toast('Clé Openrouteservice refusée — repli sur le moteur standard.',4000);
           else if(e && e.message==='ors-quota') toast('Quota Openrouteservice atteint — repli sur le moteur standard.',4000);
           else toast('Openrouteservice indisponible — repli sur le moteur standard.',3000);
         }
-        return osrmFetch();
+        return osrmFetch(ms);
       });
     }
-    return osrmFetch();
+    return osrmFetch(ms);
   }
   function fetchRoutes(quiet){
-    if(!ttKey) return fetchOrsOrOsrm(quiet);
-    return tomtomFetch().catch(function(e){
+    // Recalcul silencieux en navigation (quiet) : on privilégie la rapidité à la
+    // meilleure qualité — l'utilisateur roule déjà hors itinéraire, chaque
+    // seconde compte. Calcul initial : on laisse un peu plus de marge.
+    var ms = quiet ? 6000 : 11000;
+    if(!ttKey) return fetchOrsOrOsrm(quiet, ms);
+    return tomtomFetch(null, ms).catch(function(e){
       if(!quiet){
         if(e && e.message==='tomtom-auth') toast('Clé TomTom refusée — passage au moteur suivant.',4000);
         else toast('TomTom indisponible — passage au moteur suivant.',3000);
       }
-      return fetchOrsOrOsrm(true);
+      return fetchOrsOrOsrm(true, ms);
     });
   }
 
@@ -1702,7 +1721,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
   // ================= Recentrage / suivi =================
   $('#recenter').addEventListener('click', function(){
     following=true; this.classList.remove('show');
-    lastAutoZoom=null; // reprend la main sur le zoom, quel que soit le niveau laissé manuellement
+    lastAutoZoom=null; zoomSpeedFilt=null; // reprend la main sur le zoom, quel que soit le niveau laissé manuellement
     if(navLast){ panFollow(navLast); }
   });
   // Dès que l'utilisateur déplace la carte en navigation, on remet le nord en haut :
@@ -2083,21 +2102,38 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
 
   // ---------- Zoom automatique ----------
   // Vue large à haute vitesse (autoroute), rapprochée à basse vitesse (ville,
-  // arrêt), et resserrée d'un cran à l'approche immédiate d'une manœuvre.
+  // arrêt), et resserrée à l'approche d'une manœuvre.
   var ZOOM_SPEED_STAGES = [[20,18], [50,17], [90,16], [Infinity,15]];
-  var lastAutoZoom = null;
-  function autoZoomFor(kmh, d){
-    var v = kmh==null ? 30 : kmh; // vitesse inconnue : hypothèse ville/route
-    var z = ZOOM_SPEED_STAGES[ZOOM_SPEED_STAGES.length-1][1];
+  // Marge de vitesse avant de changer de palier (km/h) : sans elle, une vitesse
+  // qui oscille pile autour d'un seuil (ex. 49-51 km/h) fait sauter le zoom à
+  // chaque position GPS. On ne suit un changement que s'il s'en écarte assez.
+  var ZOOM_SPEED_HYSTERESIS = 4;
+  var zoomSpeedFilt = null, lastAutoZoom = null;
+
+  function speedStage(v){
     for(var i=0;i<ZOOM_SPEED_STAGES.length;i++){
-      if(v <= ZOOM_SPEED_STAGES[i][0]){ z = ZOOM_SPEED_STAGES[i][1]; break; }
+      if(v <= ZOOM_SPEED_STAGES[i][0]) return ZOOM_SPEED_STAGES[i][1];
     }
-    if(d!=null && d<150) z = Math.min(19, z+1);
+    return ZOOM_SPEED_STAGES[ZOOM_SPEED_STAGES.length-1][1];
+  }
+  // Distance de resserrement selon le type de manœuvre : une sortie d'autoroute
+  // se repère de plus loin qu'un simple virage, un rond-point de plus près.
+  function nearLead(type){
+    if(type==='off ramp' || type==='fork' || type==='merge') return 300;
+    if(type==='roundabout') return 120;
+    return 150;
+  }
+  function autoZoomFor(kmh, d, maneuverType){
+    var raw = kmh==null ? 30 : kmh; // vitesse inconnue : hypothèse ville/route
+    if(zoomSpeedFilt==null || Math.abs(raw-zoomSpeedFilt) > ZOOM_SPEED_HYSTERESIS) zoomSpeedFilt = raw;
+    var z = speedStage(zoomSpeedFilt);
+    if(maneuverType==='arrive' && d!=null && d<50) return 19; // précision maximale à l'arrivée
+    if(d!=null && d<nearLead(maneuverType)) z = Math.min(19, z+1);
     return z;
   }
-  function applyAutoZoom(kmh, d){
+  function applyAutoZoom(kmh, d, maneuverType){
     if(!following) return;
-    var z = autoZoomFor(kmh, d);
+    var z = autoZoomFor(kmh, d, maneuverType);
     // animate:false — un zoom animé en parallèle du panFollow (lui aussi animé)
     // fait entrer les deux animations Leaflet en conflit et peut casser le rendu
     // du tracé (SVG réduit à un point). Le zoom change peu souvent ; le voir
@@ -2119,7 +2155,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     if(navSteps.length<2){ toast('Itinéraire trop court pour le guidage.'); return; }
     navPtr=1; navIdx=1; offCount=0;
     spokenFar={}; spokenNear={}; spokenWarn={};
-    navActive=true; following=true; lastAutoZoom=null;
+    navActive=true; following=true; lastAutoZoom=null; zoomSpeedFilt=null;
 
     navSize();
     document.body.classList.add('nav');
@@ -2187,7 +2223,9 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
       trimRoute(L.latLng(near.lat, near.lng), navIdx);
       if(near.d>60){
         offCount++;
-        if(offCount>=3){
+        // 2 positions consécutives plutôt que 3 : détecte la sortie d'itinéraire
+        // un peu plus tôt (~1 s de gagné), sans se fier à un seul point isolé.
+        if(offCount>=2){
           offCount=0; toast('<span class="spin"></span>Hors itinéraire — recalcul…',0);
           pts.from={lat:lat,lng:lng,label:'Position actuelle'};
           recalcFromHere();
@@ -2207,7 +2245,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
       loc=step.maneuver.location; target=L.latLng(loc[1],loc[0]); d=map.distance(here,target);
     }
 
-    applyAutoZoom(kmh, d);
+    applyAutoZoom(kmh, d, step.maneuver.type);
 
     if(navSteps[navPtr].maneuver.type==='arrive' && d<30){
       updateNavDisplay(0, maneuverFr(navSteps[navPtr]));
@@ -2350,7 +2388,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     var curRem = remainingSeconds();
     if(curRem < ALT_MIN_GAIN + 120) return;   // trop court pour espérer un tel gain
     altBusy=true;
-    tomtomFetch({ lat:navLast.lat, lng:navLast.lng })
+    tomtomFetch({ lat:navLast.lat, lng:navLast.lng }, 8000)
       .then(function(routes){
         altBusy=false;
         if(!navActive || !routes || !routes.length) return;

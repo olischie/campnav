@@ -1623,7 +1623,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
   // Fichier POI au format « longitude,latitude,"CODE PAYS VILLE … Aire CCI <id>" ».
   // Chargé une seule fois puis gardé en mémoire : la recherche est locale, donc
   // instantanée et disponible hors connexion, contrairement à Overpass.
-  var CCI_URL = 'aires/ATOTALES_CCI.asc';
+  var CCI_URL = 'ATOTALES_CCI.asc';
   var CCI = {
     ASN: { emoji:'🌙', color:'#0ea5e9', name:'Services + stationnement nuit' },
     AS:  { emoji:'🛠️', color:'#2563eb', name:'Services uniquement' },
@@ -1717,7 +1717,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
       if(total>250) toast(total+' aires dans la zone — les 250 plus proches sont affichées. Zoomez pour affiner.',4500);
     }).catch(function(){
       hideToast();
-      toast('Base des aires introuvable (aires/ATOTALES_CCI.asc).',4500);
+      toast('Base des aires introuvable (ATOTALES_CCI.asc).',4500);
     });
   });
 

@@ -15,7 +15,7 @@ const SHELL_ASSETS = [
   './icon-512-maskable.png',
   './apple-touch-icon.png',
   // Base des aires camping-car : mise en cache pour rester consultable hors connexion.
-  './aires/ATOTALES_CCI.asc',
+  './ATOTALES_CCI.asc',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',
   'https://unpkg.com/protomaps-leaflet/dist/protomaps-leaflet.js'

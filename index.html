@@ -1548,50 +1548,54 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
   // `nw` = nœuds + chemins en une seule passe : deux fois moins de sélecteurs à
   // évaluer côté Overpass qu'avec des `node[...]` et `way[...]` séparés. Les
   // valeurs multiples sont groupées en expression régulière, pour la même raison.
-  var POI = {
-    // Les aires sont scindées par tarif. Attention : seules ~35 % des aires
-    // portent le tag `fee` dans OSM ; la catégorie « tarif ? » récupère les 65 %
-    // restants ([!fee] = tag absent), sans quoi elles seraient invisibles.
-    airePay:{ emoji:'💶', color:'#b45309', name:'Aire camping-car payante',
-              q:['nw["tourism"="caravan_site"]["fee"="yes"]'] },
-    aireFree:{emoji:'🆓', color:'#16a34a', name:'Aire camping-car gratuite',
-              q:['nw["tourism"="caravan_site"]["fee"="no"]'] },
-    aire:   { emoji:'🅿️', color:'#2563eb', name:'Aire camping-car (tarif non précisé)',
-              q:['nw["tourism"="caravan_site"][!"fee"]'] },
-    // Borne de vidange : eaux grises / cassette WC. Souvent une simple borne
-    // isolée, parfois un équipement d'une aire ou d'une station-service.
-    vidange:{ emoji:'🚽', color:'#0891b2', name:'Borne de vidange',
-              q:['nw["amenity"="sanitary_dump_station"]'] },
-    water:  { emoji:'🚰', color:'#0ea5e9', name:'Eau potable',
-              q:['nw["amenity"~"^(drinking_water|water_point)$"]','nw["man_made"="water_tap"]["drinking_water"="yes"]'] },
-    camp:   { emoji:'⛺', color:'#16a34a', name:'Camping',
-              q:['nw["tourism"="camp_site"]'] },
-    // « Pleine nature » : camping sauvage / sommaire, sans infrastructure.
-    nature: { emoji:'🌲', color:'#15803d', name:'Bivouac / camping en pleine nature',
-              q:['nw["tourism"~"^(camp_site|caravan_site)$"]["backcountry"="yes"]',
-                 'nw["tourism"="camp_site"]["camp_site"="basic"]'] },
-    rest:   { emoji:'🛣️', color:'#f59e0b', name:'Aire de repos',
-              q:['nw["highway"~"^(services|rest_area)$"]'] },
-    // Parking explicitement ouvert aux camping-cars, sans services.
-    parkCC: { emoji:'🚐', color:'#0369a1', name:'Parking camping-car (sans services)',
-              q:['nw["amenity"="parking"]["motorhome"="yes"]',
-                 'nw["amenity"="parking"]["caravan"="yes"]'] },
-    park:   { emoji:'🅿', color:'#64748b', name:'Parking',
-              q:['nw["amenity"="parking"]'] },
-    shop:   { emoji:'🛒', color:'#7c3aed', name:'Supermarché',
-              q:['nw["shop"="supermarket"]'] },
-    toilets:{ emoji:'🚻', color:'#475569', name:'Toilettes publiques',
-              q:['nw["amenity"="toilets"]'] },
-    repair: { emoji:'🔧', color:'#b45309', name:'Vente / réparation camping-car',
-              q:['nw["shop"="caravan"]'] },
-    food:   { emoji:'🍽️', color:'#e11d48', name:'Restaurant',
-              q:['nw["amenity"~"^(restaurant|fast_food)$"]'] },
-    // Les sites touristiques sans nom sont écartés à l'affichage : on demande
-    // directement à Overpass de ne renvoyer que ceux qui en ont un.
-    tourism:{ emoji:'🏛️', color:'#0d9488', name:'Site touristique',
-              q:['nw["tourism"~"^(attraction|museum|viewpoint)$"]["name"]',
-                 'nw["historic"~"^(castle|monument|ruins)$"]["name"]'] }
+  // Plusieurs catégories reposent sur la MÊME donnée OSM : les trois variantes
+  // d'aires ne sont qu'un `caravan_site` trié par tarif. On interroge donc
+  // Overpass une fois par « base » et l'on trie ensuite localement : pour la
+  // sélection par défaut, une seule passe serveur au lieu de trois.
+  var BASES = {
+    caravan: ['nw["tourism"="caravan_site"]'],
+    camp:    ['nw["tourism"="camp_site"]'],
+    nature:  ['nw["tourism"~"^(camp_site|caravan_site)$"]["backcountry"="yes"]',
+              'nw["tourism"="camp_site"]["camp_site"="basic"]'],
+    dump:    ['nw["amenity"="sanitary_dump_station"]'],
+    water:   ['nw["amenity"~"^(drinking_water|water_point)$"]',
+              'nw["man_made"="water_tap"]["drinking_water"="yes"]'],
+    rest:    ['nw["highway"~"^(services|rest_area)$"]'],
+    parkcc:  ['nw["amenity"="parking"]["motorhome"="yes"]',
+              'nw["amenity"="parking"]["caravan"="yes"]'],
+    park:    ['nw["amenity"="parking"]'],
+    shop:    ['nw["shop"="supermarket"]'],
+    toilets: ['nw["amenity"="toilets"]'],
+    repair:  ['nw["shop"="caravan"]'],
+    food:    ['nw["amenity"~"^(restaurant|fast_food)$"]'],
+    // Les sites touristiques sans nom n'apportent rien : on les écarte côté serveur.
+    tourism: ['nw["tourism"~"^(attraction|museum|viewpoint)$"]["name"]',
+              'nw["historic"~"^(castle|monument|ruins)$"]["name"]']
   };
+  // Une base qui en contient une autre rend la seconde inutile.
+  var BASE_COVERS = { park:['parkcc'], caravan:[], camp:[] };
+
+  var POI = {
+    // Seules ~35 % des aires portent le tag `fee` : la variante « tarif ? »
+    // récupère les 65 % restants, sans quoi elles seraient invisibles.
+    airePay:{ emoji:'💶', color:'#b45309', name:'Aire camping-car payante',      base:'caravan' },
+    aireFree:{emoji:'🆓', color:'#16a34a', name:'Aire camping-car gratuite',     base:'caravan' },
+    aire:   { emoji:'🅿️', color:'#2563eb', name:'Aire camping-car (tarif non précisé)', base:'caravan' },
+    // Borne de vidange isolée, ou équipement d'une aire / station-service.
+    vidange:{ emoji:'🚽', color:'#0891b2', name:'Borne de vidange',              base:'dump' },
+    water:  { emoji:'🚰', color:'#0ea5e9', name:'Eau potable',                   base:'water' },
+    camp:   { emoji:'⛺', color:'#16a34a', name:'Camping',                       base:'camp' },
+    nature: { emoji:'🌲', color:'#15803d', name:'Bivouac / camping en pleine nature', base:'nature' },
+    rest:   { emoji:'🛣️', color:'#f59e0b', name:'Aire de repos',                 base:'rest' },
+    parkCC: { emoji:'🚐', color:'#0369a1', name:'Parking camping-car (sans services)', base:'parkcc' },
+    park:   { emoji:'🅿', color:'#64748b', name:'Parking',                       base:'park' },
+    shop:   { emoji:'🛒', color:'#7c3aed', name:'Supermarché',                   base:'shop' },
+    toilets:{ emoji:'🚻', color:'#475569', name:'Toilettes publiques',           base:'toilets' },
+    repair: { emoji:'🔧', color:'#b45309', name:'Vente / réparation camping-car',base:'repair' },
+    food:   { emoji:'🍽️', color:'#e11d48', name:'Restaurant',                    base:'food' },
+    tourism:{ emoji:'🏛️', color:'#0d9488', name:'Site touristique',              base:'tourism' }
+  };
+
   // Les puces sont réparties en trois groupes visuels, mais alimentent une seule
   // liste de catégories actives.
   var activeCats = {};
@@ -1616,6 +1620,46 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     toast('Services effacés de la carte.',2000);
   });
 
+  // Les serveurs Overpass publics répondent entre 2 s et 35 s selon leur charge,
+  // et échouent parfois : on garde donc les éléments bruts déjà obtenus. Un
+  // nouveau tri de catégories, ou un zoom dans une zone déjà couverte, devient
+  // alors instantané au lieu de repasser par le réseau.
+  var poiCache=[], POI_CACHE_MAX=8, POI_CACHE_TTL=600000; // 10 min
+  function cacheGet(bases, bb){
+    var k=bases.join('|'), now=Date.now();
+    for(var i=poiCache.length-1;i>=0;i--){
+      var e=poiCache[i];
+      if(now-e.t > POI_CACHE_TTL){ poiCache.splice(i,1); continue; }
+      // la zone demandée doit être entièrement contenue dans la zone mémorisée
+      if(e.k===k && e.bb[0]<=bb[0] && e.bb[1]<=bb[1] && e.bb[2]>=bb[2] && e.bb[3]>=bb[3]) return e.els;
+    }
+    return null;
+  }
+  function cachePut(bases, bb, els){
+    poiCache.push({k:bases.join('|'), bb:bb, els:els, t:Date.now()});
+    while(poiCache.length>POI_CACHE_MAX) poiCache.shift();
+  }
+
+  // Transforme les éléments Overpass bruts en résultats affichables.
+  function poiItems(els, wanted, bb){
+    var items=[], seen={};
+    els.forEach(function(el){
+      var lat = (el.lat!=null) ? el.lat : (el.center ? el.center.lat : null);
+      var lng = (el.lon!=null) ? el.lon : (el.center ? el.center.lon : null);
+      if(lat==null || lng==null) return;
+      // Le cache peut couvrir plus large que la vue : on borne à la zone demandée.
+      if(lat<bb[0] || lat>bb[2] || lng<bb[1] || lng>bb[3]) return;
+      var tags = el.tags||{};
+      var cat=catOf(tags, wanted);
+      if(!cat) return;
+      if(cat==='tourism' && !tags.name) return; // un site touristique sans nom n'apporte rien
+      var id = el.type+'/'+el.id;
+      if(seen[id]) return; seen[id]=true;
+      items.push({lat:lat,lng:lng,cat:cat,name:(tags.name||POI[cat].name),tags:tags});
+    });
+    return items;
+  }
+
   $('#searchPoi').addEventListener('click', function(){
     var cats=Object.keys(activeCats).filter(function(k){return activeCats[k];});
     if(!cats.length){ toast('Choisissez au moins une catégorie.'); return; }
@@ -1626,35 +1670,37 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     // découvrir, et les marqueurs apparaissent ensuite sous les yeux. La liste
     // reste disponible en rouvrant le panneau (poignée en bas).
     sheet.classList.remove('open');
-    toast('<span class="spin"></span>Recherche des services…',0);
 
-    // Un « out » par catégorie : la limite de 30 s'applique à chacune,
-    // sinon une seule catégorie prolifique mangerait tout le quota.
+    var wanted={}; cats.forEach(function(c){ wanted[c]=true; });
+
+    // Une base par jeu de données OSM, et non une par catégorie : les trois
+    // variantes d'aires ne coûtent ainsi qu'une seule passe au serveur.
+    var set={};
+    cats.forEach(function(c){ set[POI[c].base]=true; });
+    Object.keys(set).forEach(function(bse){
+      (BASE_COVERS[bse]||[]).forEach(function(couvert){ delete set[couvert]; });
+    });
+    var bases=Object.keys(set).sort();
+
+    var hit=cacheGet(bases, bb);
+    if(hit){ renderPois(poiItems(hit, wanted, bb)); return; }  // déjà en mémoire
+
+    toast('<span class="spin"></span>Recherche des services…',0);
+    // Un « out » par base : la limite s'applique à chacune, sinon une base
+    // prolifique (les parkings) mangerait tout le quota des autres.
     var q='[out:json][timeout:20];';
-    cats.forEach(function(c){
-      q += '(' + POI[c].q.map(function(sel){ return sel+'('+bb.join(',')+');'; }).join('') + ');out center 30;';
+    bases.forEach(function(bse){
+      q += '(' + BASES[bse].map(function(sel){ return sel+'('+bb.join(',')+');'; }).join('') + ');out center 40;';
     });
 
     if(poiAbort) poiAbort.abort();
     poiAbort = ('AbortController' in window) ? new AbortController() : null;
-    var wanted={}; cats.forEach(function(c){ wanted[c]=true; });
     overpassFetch(q, poiAbort ? poiAbort.signal : undefined)
       .then(function(d){
         hideToast();
-        var items=[], seen={};
-        (d.elements||[]).forEach(function(el){
-          var lat = (el.lat!=null) ? el.lat : (el.center ? el.center.lat : null);
-          var lng = (el.lon!=null) ? el.lon : (el.center ? el.center.lon : null);
-          if(lat==null || lng==null) return;
-          var tags = el.tags||{};
-          var cat=catOf(tags, wanted);
-          if(!cat) return;
-          if(cat==='tourism' && !tags.name) return; // un site touristique sans nom n'apporte rien
-          var id = el.type+'/'+el.id;
-          if(seen[id]) return; seen[id]=true;
-          items.push({lat:lat,lng:lng,cat:cat,name:(tags.name||POI[cat].name),tags:tags});
-        });
-        renderPois(items);
+        var els=d.elements||[];
+        cachePut(bases, bb, els);
+        renderPois(poiItems(els, wanted, bb));
       })
       .catch(function(e){
         if(e && e.name==='AbortError') return;
@@ -1673,7 +1719,10 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     ['nature',  isNature],
     ['airePay', function(t){ return t.tourism==='caravan_site' && t.fee==='yes'; }],
     ['aireFree',function(t){ return t.tourism==='caravan_site' && t.fee==='no'; }],
-    ['aire',    function(t){ return t.tourism==='caravan_site'; }],
+    // « Tarif non précisé » exige l'absence de tarif connu : sans cette condition,
+    // une aire payante décocherait vers cette catégorie dès qu'on désélectionne
+    // « payantes », puisque la requête fusionnée ramène toutes les aires.
+    ['aire',    function(t){ return t.tourism==='caravan_site' && t.fee!=='yes' && t.fee!=='no'; }],
     ['vidange', function(t){ return t.amenity==='sanitary_dump_station'; }],
     ['camp',    function(t){ return t.tourism==='camp_site'; }],
     ['water',   function(t){ return t.amenity==='drinking_water' || t.amenity==='water_point' || t.man_made==='water_tap'; }],

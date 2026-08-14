@@ -204,12 +204,6 @@
   /* Lien vers le site de l'aire / du camping : cliquable sans déclencher la ligne */
   .result .txt small a{color:var(--blue); text-decoration:none;}
   .leaflet-popup-content a{color:var(--blue);}
-  /* Services d'une aire : disponibles en vert, absents barrés en gris */
-  .popsvc{ display:flex; flex-wrap:wrap; gap:4px 6px; margin:8px 0 2px; }
-  .popsvc.none{ display:block; color:var(--muted); font-style:italic; font-size:11px; }
-  .popsvc .sv{ font-size:11px; padding:3px 7px; border-radius:11px; white-space:nowrap; }
-  .popsvc .sv.ok{ background:rgba(34,197,94,.16); color:#15803d; }
-  .popsvc .sv.ko{ background:rgba(120,130,150,.14); color:#6b7280; text-decoration:line-through; }
   .result .go{
     background:var(--panel-2);border:1px solid var(--line);color:var(--ink);
     border-radius:10px;padding:8px 10px;font-size:12px;flex:none;
@@ -1701,22 +1695,9 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     return null;
   }
 
-  // Catégories « où s'arrêter » : seules celles-ci méritent le détail des services.
-  var STOP_CATS = { airePay:1, aireFree:1, aire:1, camp:1, nature:1, parkCC:1, rest:1 };
-  // …et parmi elles, celles où un site web sert vraiment (réserver, voir les tarifs).
+  // Catégories où un site web sert vraiment (réserver, vérifier les tarifs).
   var SITE_CATS = { airePay:1, aireFree:1, aire:1, camp:1, nature:1 };
 
-  // Les six services qui décident si une aire vaut le détour. Chacun peut être
-  // annoncé présent, absent, ou non renseigné — les trois cas sont distincts :
-  // « pas de douche » est une information, « on ne sait pas » n'en est pas une.
-  var SERVICES = [
-    { ico:'🔌', nom:'Électricité',        val:function(t){ return t.power_supply || t.electricity; } },
-    { ico:'🚰', nom:'Eau potable',        val:function(t){ return t.drinking_water || t.water_point; } },
-    { ico:'🚽', nom:'Vidange',            val:function(t){ return t.sanitary_dump_station; } },
-    { ico:'🚻', nom:'Toilettes',          val:function(t){ return t.toilets; } },
-    { ico:'🚿', nom:'Douches',            val:function(t){ return t.shower; } },
-    { ico:'🐕', nom:'Animaux autorisés',  val:function(t){ return t.dog; } }
-  ];
   // 'no' seul vaut refus ; toute autre valeur renseignée vaut acceptation
   // (power_supply peut valoir « yes », dog « leashed », toilets « customers »…).
   function svcState(v){
@@ -1725,37 +1706,31 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     if(v==='no' || v==='none') return false;
     return true;
   }
-  // Bloc de services pour la popup : présents en vert, absents barrés, le reste omis.
-  function svcHtml(t){
-    var on=[], off=[];
-    SERVICES.forEach(function(s){
-      var st=svcState(s.val(t));
-      if(st===true){
-        var v=String(s.val(t)).toLowerCase();
-        on.push('<span class="sv ok">'+s.ico+' '+esc(s.nom)+(v==='leashed'?' (en laisse)':'')+'</span>');
-      }
-      else if(st===false) off.push('<span class="sv ko">'+s.ico+' '+esc(s.nom)+'</span>');
-    });
-    var all=on.concat(off);
-    return all.length ? '<div class="popsvc">'+all.join('')+'</div>'
-                      : '<div class="popsvc none">Services non renseignés dans OpenStreetMap.</div>';
-  }
 
-  // Version compacte pour la liste : uniquement ce qui est disponible.
+  // Services affichés sur une seule ligne, dans la liste comme dans la popup :
+  // uniquement ce qui est disponible, pour rester lisible d'un coup d'œil.
   function svcMarks(t){
-    var m=[];
-    if(svcState(t.drinking_water || t.water_point)) m.push('🚰 eau');
-    if(svcState(t.sanitary_dump_station)) m.push('🚽 vidange');
-    if(svcState(t.power_supply || t.electricity)) m.push('🔌 élec.');
-    if(svcState(t.toilets)) m.push('🚻 wc');
-    if(svcState(t.shower)) m.push('🚿 douche');
-    if(svcState(t.dog)) m.push('🐕 animaux');
+    var m=[], off=[];
+    // Un service annoncé absent reste une information — elle est reléguée en fin
+    // de ligne, préfixée de ✗, pour ne pas concurrencer ce qui est disponible.
+    // Un service simplement non renseigné, lui, n'apparaît nulle part.
+    var svc=function(v, dispo, absent){
+      var st=svcState(v);
+      if(st===true) m.push(dispo);
+      else if(st===false) off.push('✗ '+absent);
+    };
+    svc(t.drinking_water || t.water_point, '🚰 eau',     'eau');
+    svc(t.sanitary_dump_station,           '🚽 vidange', 'vidange');
+    svc(t.power_supply || t.electricity,   '🔌 élec.',   'élec.');
+    svc(t.toilets,                         '🚻 wc',      'wc');
+    svc(t.shower,                          '🚿 douche',  'douche');
+    svc(t.dog,                             '🐕 animaux', 'animaux');
     if(t.fee==='yes') m.push(t.charge ? '💶 '+t.charge : '💶 payant');
     else if(t.fee==='no') m.push('gratuit');
     if(t.maxstay) m.push('⏱ max '+t.maxstay);
     if(t.maxheight) m.push('⚠ h. max '+t.maxheight+' m');
     if(t.capacity) m.push(t.capacity+' pl.');
-    return m;
+    return m.concat(off);
   }
   function subLabel(cat,t){
     var base;
@@ -1810,7 +1785,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
       };
       var mk=L.marker([it.lat,it.lng],{icon:poiIcon(p.emoji,p.color)})
         .bindPopup('<b>'+p.emoji+' '+esc(it.name)+'</b><br>'+esc(lbl)+siteHtml+
-          (STOP_CATS[it.cat] ? svcHtml(it.tags||{}) : '<br>')+
+          '<br>'+
           '<button class="popgo">🎯 Définir comme destination</button>')
         .addTo(poiLayer);
       mk.on('popupopen', function(e){

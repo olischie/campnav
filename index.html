@@ -201,6 +201,15 @@
   .result .txt{flex:1;min-width:0;}
   .result .txt b{font-size:15px;font-weight:600;}
   .result .txt small{color:var(--muted);display:block;margin-top:2px;font-size:12px;}
+  /* Lien vers le site de l'aire / du camping : cliquable sans déclencher la ligne */
+  .result .txt small a{color:var(--blue); text-decoration:none;}
+  .leaflet-popup-content a{color:var(--blue);}
+  /* Services d'une aire : disponibles en vert, absents barrés en gris */
+  .popsvc{ display:flex; flex-wrap:wrap; gap:4px 6px; margin:8px 0 2px; }
+  .popsvc.none{ display:block; color:var(--muted); font-style:italic; font-size:11px; }
+  .popsvc .sv{ font-size:11px; padding:3px 7px; border-radius:11px; white-space:nowrap; }
+  .popsvc .sv.ok{ background:rgba(34,197,94,.16); color:#15803d; }
+  .popsvc .sv.ko{ background:rgba(120,130,150,.14); color:#6b7280; text-decoration:line-through; }
   .result .go{
     background:var(--panel-2);border:1px solid var(--line);color:var(--ink);
     border-radius:10px;padding:8px 10px;font-size:12px;flex:none;
@@ -547,21 +556,25 @@
 
     <!-- POI -->
     <div class="pane" id="pane-poi">
-      <label class="lb">Étape &amp; services camping-car</label>
+      <label class="lb">Où s'arrêter</label>
       <div class="chips" id="poiChips">
-        <button class="chip on" data-cat="aire">🅿️ Aires CC</button>
-        <button class="chip on" data-cat="vidange">🚽 Vidange</button>
-        <button class="chip" data-cat="water">🚰 Eau potable</button>
+        <button class="chip on" data-cat="airePay">💶 Aires CC payantes</button>
+        <button class="chip on" data-cat="aireFree">🆓 Aires CC gratuites</button>
+        <button class="chip on" data-cat="aire">🅿️ Aires CC (tarif ?)</button>
         <button class="chip" data-cat="camp">⛺ Campings</button>
-        <button class="chip" data-cat="rest">🛣️ Aires d'autoroute</button>
-        <button class="chip" data-cat="park">🅿 Parkings</button>
+        <button class="chip" data-cat="nature">🌲 Pleine nature</button>
+        <button class="chip" data-cat="rest">🛣️ Aires de repos</button>
+        <button class="chip" data-cat="parkCC">🚐 Parking CC sans services</button>
+        <button class="chip" data-cat="park">🅿 Parkings (tous)</button>
+      </div>
+      <label class="lb">Services isolés</label>
+      <div class="chips" id="poiChipsSvc">
+        <button class="chip" data-cat="vidange">🚽 Vidange</button>
+        <button class="chip" data-cat="water">🚰 Eau potable</button>
       </div>
       <label class="lb">Ravitaillement &amp; entretien</label>
       <div class="chips" id="poiChips2">
-        <button class="chip" data-cat="fuel">⛽ Carburant</button>
-        <button class="chip" data-cat="lpg">🔥 GPL</button>
         <button class="chip" data-cat="shop">🛒 Supermarchés</button>
-        <button class="chip" data-cat="laundry">🧺 Laveries</button>
         <button class="chip" data-cat="toilets">🚻 Toilettes</button>
         <button class="chip" data-cat="repair">🔧 Vente / réparation CC</button>
       </div>
@@ -1540,30 +1553,37 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
   // évaluer côté Overpass qu'avec des `node[...]` et `way[...]` séparés. Les
   // valeurs multiples sont groupées en expression régulière, pour la même raison.
   var POI = {
-    aire:   { emoji:'🅿️', color:'#2563eb', name:'Aire camping-car',
-              q:['nw["tourism"="caravan_site"]'] },
+    // Les aires sont scindées par tarif. Attention : seules ~35 % des aires
+    // portent le tag `fee` dans OSM ; la catégorie « tarif ? » récupère les 65 %
+    // restants ([!fee] = tag absent), sans quoi elles seraient invisibles.
+    airePay:{ emoji:'💶', color:'#b45309', name:'Aire camping-car payante',
+              q:['nw["tourism"="caravan_site"]["fee"="yes"]'] },
+    aireFree:{emoji:'🆓', color:'#16a34a', name:'Aire camping-car gratuite',
+              q:['nw["tourism"="caravan_site"]["fee"="no"]'] },
+    aire:   { emoji:'🅿️', color:'#2563eb', name:'Aire camping-car (tarif non précisé)',
+              q:['nw["tourism"="caravan_site"][!"fee"]'] },
     // Borne de vidange : eaux grises / cassette WC. Souvent une simple borne
     // isolée, parfois un équipement d'une aire ou d'une station-service.
     vidange:{ emoji:'🚽', color:'#0891b2', name:'Borne de vidange',
               q:['nw["amenity"="sanitary_dump_station"]'] },
     water:  { emoji:'🚰', color:'#0ea5e9', name:'Eau potable',
-              q:['nw["amenity"="drinking_water"]','nw["man_made"="water_tap"]["drinking_water"="yes"]'] },
+              q:['nw["amenity"~"^(drinking_water|water_point)$"]','nw["man_made"="water_tap"]["drinking_water"="yes"]'] },
     camp:   { emoji:'⛺', color:'#16a34a', name:'Camping',
               q:['nw["tourism"="camp_site"]'] },
-    rest:   { emoji:'🛣️', color:'#f59e0b', name:'Aire d\'autoroute',
+    // « Pleine nature » : camping sauvage / sommaire, sans infrastructure.
+    nature: { emoji:'🌲', color:'#15803d', name:'Bivouac / camping en pleine nature',
+              q:['nw["tourism"~"^(camp_site|caravan_site)$"]["backcountry"="yes"]',
+                 'nw["tourism"="camp_site"]["camp_site"="basic"]'] },
+    rest:   { emoji:'🛣️', color:'#f59e0b', name:'Aire de repos',
               q:['nw["highway"~"^(services|rest_area)$"]'] },
+    // Parking explicitement ouvert aux camping-cars, sans services.
+    parkCC: { emoji:'🚐', color:'#0369a1', name:'Parking camping-car (sans services)',
+              q:['nw["amenity"="parking"]["motorhome"="yes"]',
+                 'nw["amenity"="parking"]["caravan"="yes"]'] },
     park:   { emoji:'🅿', color:'#64748b', name:'Parking',
               q:['nw["amenity"="parking"]'] },
-    fuel:   { emoji:'⛽', color:'#dc2626', name:'Station-service',
-              q:['nw["amenity"="fuel"]'] },
-    // GPL : sous-ensemble des stations-service. Placé avant `fuel` dans catOf()
-    // pour qu'une station qui vend du GPL soit étiquetée comme telle.
-    lpg:    { emoji:'🔥', color:'#ea580c', name:'GPL / gaz',
-              q:['nw["amenity"="fuel"]["fuel:lpg"="yes"]'] },
     shop:   { emoji:'🛒', color:'#7c3aed', name:'Supermarché',
               q:['nw["shop"="supermarket"]'] },
-    laundry:{ emoji:'🧺', color:'#9333ea', name:'Laverie',
-              q:['nw["shop"="laundry"]','nw["amenity"="laundry"]'] },
     toilets:{ emoji:'🚻', color:'#475569', name:'Toilettes publiques',
               q:['nw["amenity"="toilets"]'] },
     repair: { emoji:'🔧', color:'#b45309', name:'Vente / réparation camping-car',
@@ -1579,7 +1599,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
   // Les puces sont réparties en trois groupes visuels, mais alimentent une seule
   // liste de catégories actives.
   var activeCats = {};
-  document.querySelectorAll('#poiChips .chip, #poiChips2 .chip, #poiChips3 .chip').forEach(function(ch){
+  document.querySelectorAll('#poiChips .chip, #poiChipsSvc .chip, #poiChips2 .chip, #poiChips3 .chip').forEach(function(ch){
     activeCats[ch.dataset.cat] = ch.classList.contains('on');
     ch.addEventListener('click', function(){
       var c=ch.dataset.cat; activeCats[c]=!activeCats[c];
@@ -1646,25 +1666,30 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
       });
   });
 
-  // Ordre volontaire, du plus spécifique au plus générique : une station qui vend
-  // du GPL doit sortir en « GPL » et non en « carburant ». `wanted` restreint
-  // l'étiquetage aux catégories demandées — sinon un supermarché muni d'une
-  // station-service serait classé « carburant » alors qu'on cherchait des courses.
+  // Ordre volontaire, du plus spécifique au plus générique. `wanted` restreint
+  // l'étiquetage aux catégories demandées — sinon un camping doté de toilettes
+  // publiques pourrait être classé « toilettes » alors qu'on cherchait où dormir.
+  var isNature = function(t){
+    return t.backcountry==='yes' || t.camp_site==='basic';
+  };
   var CAT_TESTS = [
+    // « Pleine nature » avant camping/aire : c'est une qualité du lieu, pas un type à part.
+    ['nature',  isNature],
+    ['airePay', function(t){ return t.tourism==='caravan_site' && t.fee==='yes'; }],
+    ['aireFree',function(t){ return t.tourism==='caravan_site' && t.fee==='no'; }],
     ['aire',    function(t){ return t.tourism==='caravan_site'; }],
     ['vidange', function(t){ return t.amenity==='sanitary_dump_station'; }],
     ['camp',    function(t){ return t.tourism==='camp_site'; }],
-    ['water',   function(t){ return t.amenity==='drinking_water' || t.man_made==='water_tap'; }],
+    ['water',   function(t){ return t.amenity==='drinking_water' || t.amenity==='water_point' || t.man_made==='water_tap'; }],
     ['rest',    function(t){ return t.highway==='services' || t.highway==='rest_area'; }],
-    ['lpg',     function(t){ return t.amenity==='fuel' && t['fuel:lpg']==='yes'; }],
-    ['fuel',    function(t){ return t.amenity==='fuel'; }],
     ['repair',  function(t){ return t.shop==='caravan'; }],
-    ['laundry', function(t){ return t.shop==='laundry' || t.amenity==='laundry'; }],
     ['toilets', function(t){ return t.amenity==='toilets'; }],
     ['shop',    function(t){ return t.shop==='supermarket'; }],
     ['food',    function(t){ return t.amenity==='restaurant' || t.amenity==='fast_food'; }],
     ['tourism', function(t){ return t.tourism==='attraction' || t.tourism==='museum' || t.tourism==='viewpoint'
                                  || t.historic==='castle' || t.historic==='monument' || t.historic==='ruins'; }],
+    // Parking ouvert aux CC avant le parking générique.
+    ['parkCC',  function(t){ return t.amenity==='parking' && (t.motorhome==='yes' || t.caravan==='yes'); }],
     ['park',    function(t){ return t.amenity==='parking'; }]
   ];
   function catOf(t, wanted){
@@ -1676,16 +1701,58 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     return null;
   }
 
-  // Équipements annoncés par OSM : ce sont eux qui décident si une aire vaut
-  // le détour. La hauteur maximale est signalée : c'est la contrainte n°1 en camping-car.
+  // Catégories « où s'arrêter » : seules celles-ci méritent le détail des services.
+  var STOP_CATS = { airePay:1, aireFree:1, aire:1, camp:1, nature:1, parkCC:1, rest:1 };
+  // …et parmi elles, celles où un site web sert vraiment (réserver, voir les tarifs).
+  var SITE_CATS = { airePay:1, aireFree:1, aire:1, camp:1, nature:1 };
+
+  // Les six services qui décident si une aire vaut le détour. Chacun peut être
+  // annoncé présent, absent, ou non renseigné — les trois cas sont distincts :
+  // « pas de douche » est une information, « on ne sait pas » n'en est pas une.
+  var SERVICES = [
+    { ico:'🔌', nom:'Électricité',        val:function(t){ return t.power_supply || t.electricity; } },
+    { ico:'🚰', nom:'Eau potable',        val:function(t){ return t.drinking_water || t.water_point; } },
+    { ico:'🚽', nom:'Vidange',            val:function(t){ return t.sanitary_dump_station; } },
+    { ico:'🚻', nom:'Toilettes',          val:function(t){ return t.toilets; } },
+    { ico:'🚿', nom:'Douches',            val:function(t){ return t.shower; } },
+    { ico:'🐕', nom:'Animaux autorisés',  val:function(t){ return t.dog; } }
+  ];
+  // 'no' seul vaut refus ; toute autre valeur renseignée vaut acceptation
+  // (power_supply peut valoir « yes », dog « leashed », toilets « customers »…).
+  function svcState(v){
+    if(v==null || v==='') return null;      // non renseigné
+    v=String(v).toLowerCase();
+    if(v==='no' || v==='none') return false;
+    return true;
+  }
+  // Bloc de services pour la popup : présents en vert, absents barrés, le reste omis.
+  function svcHtml(t){
+    var on=[], off=[];
+    SERVICES.forEach(function(s){
+      var st=svcState(s.val(t));
+      if(st===true){
+        var v=String(s.val(t)).toLowerCase();
+        on.push('<span class="sv ok">'+s.ico+' '+esc(s.nom)+(v==='leashed'?' (en laisse)':'')+'</span>');
+      }
+      else if(st===false) off.push('<span class="sv ko">'+s.ico+' '+esc(s.nom)+'</span>');
+    });
+    var all=on.concat(off);
+    return all.length ? '<div class="popsvc">'+all.join('')+'</div>'
+                      : '<div class="popsvc none">Services non renseignés dans OpenStreetMap.</div>';
+  }
+
+  // Version compacte pour la liste : uniquement ce qui est disponible.
   function svcMarks(t){
     var m=[];
-    if(t.drinking_water==='yes' || t.water_point==='yes') m.push('🚰 eau');
-    if(t.sanitary_dump_station==='yes') m.push('🚽 vidange');
-    if(t.power_supply==='yes' || t.electricity==='yes') m.push('🔌 élec.');
-    if(t.shower==='yes') m.push('🚿 douche');
-    if(t.fee==='yes') m.push('💶 payant');
+    if(svcState(t.drinking_water || t.water_point)) m.push('🚰 eau');
+    if(svcState(t.sanitary_dump_station)) m.push('🚽 vidange');
+    if(svcState(t.power_supply || t.electricity)) m.push('🔌 élec.');
+    if(svcState(t.toilets)) m.push('🚻 wc');
+    if(svcState(t.shower)) m.push('🚿 douche');
+    if(svcState(t.dog)) m.push('🐕 animaux');
+    if(t.fee==='yes') m.push(t.charge ? '💶 '+t.charge : '💶 payant');
     else if(t.fee==='no') m.push('gratuit');
+    if(t.maxstay) m.push('⏱ max '+t.maxstay);
     if(t.maxheight) m.push('⚠ h. max '+t.maxheight+' m');
     if(t.capacity) m.push(t.capacity+' pl.');
     return m;
@@ -1705,6 +1772,21 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     var m = svcMarks(t||{});
     return m.length ? base+' · '+m.join(' · ') : base;
   }
+  // Site web déclaré dans OSM (aires et campings). Ces valeurs sont saisies à la
+  // main : beaucoup omettent le schéma, certaines en empilent plusieurs séparées
+  // par « ; ». Comme l'URL finit dans un href, on n'accepte que http(s) — un
+  // « javascript: » glissé dans OSM ne doit pas devenir cliquable ici.
+  function poiSite(t){
+    var raw = String(t.website || t['contact:website'] || t.url || '').split(';')[0].trim();
+    if(!raw) return null;
+    if(/^www\./i.test(raw)) raw = 'https://'+raw;
+    return /^https?:\/\//i.test(raw) ? raw : null;
+  }
+  // Affiche le domaine seul : une URL complète déborderait de la ligne.
+  function siteLabel(u){
+    return u.replace(/^https?:\/\//i,'').replace(/^www\./i,'').split(/[\/?#]/)[0];
+  }
+
   function renderPois(items){
     var list=$('#poiList');
     if(!items.length){ list.innerHTML='<div class="empty">Rien trouvé dans cette zone. Élargissez la carte et relancez.</div>'; return; }
@@ -1715,6 +1797,11 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     items.slice(0,80).forEach(function(it){
       var p=POI[it.cat];
       var lbl=subLabel(it.cat, it.tags||{});
+      // Le site web n'a d'intérêt que là où l'on réserve ou vérifie les tarifs.
+      var site = SITE_CATS[it.cat] ? poiSite(it.tags||{}) : null;
+      var siteHtml = site
+        ? ' · <a href="'+esc(site)+'" target="_blank" rel="noopener">🌐 '+esc(siteLabel(site))+'</a>'
+        : '';
       var setDest=function(){
         setPoint('to', it.lat, it.lng, it.name);
         $('#toInp').value = it.name;
@@ -1722,8 +1809,9 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
         sheet.classList.remove('open');
       };
       var mk=L.marker([it.lat,it.lng],{icon:poiIcon(p.emoji,p.color)})
-        .bindPopup('<b>'+p.emoji+' '+esc(it.name)+'</b><br>'+esc(lbl)+
-          '<br><button class="popgo">🎯 Définir comme destination</button>')
+        .bindPopup('<b>'+p.emoji+' '+esc(it.name)+'</b><br>'+esc(lbl)+siteHtml+
+          (STOP_CATS[it.cat] ? svcHtml(it.tags||{}) : '<br>')+
+          '<button class="popgo">🎯 Définir comme destination</button>')
         .addTo(poiLayer);
       mk.on('popupopen', function(e){
         var b=e.popup.getElement().querySelector('.popgo');
@@ -1731,7 +1819,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
       });
       var row=document.createElement('div'); row.className='result';
       row.innerHTML='<div class="ico">'+p.emoji+'</div><div class="txt"><b>'+esc(it.name)+
-        '</b><small>'+esc(lbl)+' · à '+fmtKm(it.d)+'</small></div>'+
+        '</b><small>'+esc(lbl)+' · à '+fmtKm(it.d)+siteHtml+'</small></div>'+
         '<button class="go" data-act="go">Y aller</button>'+
         '<button class="go" data-act="fav" style="margin-left:6px">★</button>';
       row.querySelector('[data-act=go]').addEventListener('click', setDest);

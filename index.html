@@ -839,7 +839,9 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
       applyTileFilter();
       return;
     }
-    tileLayer = protomapsL.leafletLayer({ url: pmTilesUrl(), flavor: b.flavor, attribution: b.attr }).addTo(map);
+    // lang:'fr' — les tuiles Protomaps embarquent les noms localisés ; sans cette
+    // option la bibliothèque retombe sur l'anglais (« Brussels », « Antwerp »).
+    tileLayer = protomapsL.leafletLayer({ url: pmTilesUrl(), flavor: b.flavor, lang: 'fr', attribution: b.attr }).addTo(map);
     tileLayer.bringToBack();
     applyTileFilter();
   }

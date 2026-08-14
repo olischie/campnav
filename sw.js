@@ -3,8 +3,8 @@
 //  - coquille de l'appli (index + libs) : "network-first" puis cache (toujours à jour si en ligne)
 //  - tuiles de carte : "cache-first" (les zones déjà consultées restent dispo hors-ligne)
 
-const SHELL_CACHE = 'cc-shell-v7';
-const TILE_CACHE  = 'cc-tiles-v7';
+const SHELL_CACHE = 'cc-shell-v8';
+const TILE_CACHE  = 'cc-tiles-v8';
 
 const SHELL_ASSETS = [
   './',
@@ -14,6 +14,8 @@ const SHELL_ASSETS = [
   './icon-512.png',
   './icon-512-maskable.png',
   './apple-touch-icon.png',
+  // Base des aires camping-car : mise en cache pour rester consultable hors connexion.
+  './aires/ATOTALES_CCI.asc',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',
   'https://unpkg.com/protomaps-leaflet/dist/protomaps-leaflet.js'

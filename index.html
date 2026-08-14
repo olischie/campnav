@@ -528,7 +528,21 @@
 
     <!-- POI -->
     <div class="pane" id="pane-poi">
-      <label class="lb">Que cherchez-vous ?</label>
+      <label class="lb">Aires camping-car (base embarquée)</label>
+      <div class="chips" id="cciChips">
+        <button class="chip on" data-cci="ASN">🛠️🌙 Services + nuit</button>
+        <button class="chip on" data-cci="AS">🛠️ Services seuls</button>
+        <button class="chip on" data-cci="APN">🌙 Parking jour+nuit</button>
+        <button class="chip" data-cci="APCC">🅿 Parking CC</button>
+        <button class="chip" data-cci="AA">🛣️ Autoroutes</button>
+        <button class="chip" data-cci="AC">⛺ Campings</button>
+        <button class="chip" data-cci="ACF">🚜 Campings ferme</button>
+        <button class="chip" data-cci="ACS">🛠️⛺ Services camping</button>
+      </div>
+      <button class="btn" id="searchCci">Afficher les aires de cette zone</button>
+      <p class="hint" id="cciHint">Base <b>campingcar-infos</b> embarquée : fonctionne <b>sans connexion</b>, affichage immédiat. Usage personnel.</p>
+
+      <label class="lb">Autres services (recherche en ligne)</label>
       <div class="chips" id="poiChips">
         <button class="chip" data-cat="aire">🅿️ Aires</button>
         <button class="chip" data-cat="camp">⛺ Campings</button>
@@ -546,6 +560,14 @@
     <!-- VEHICLE -->
     <div class="pane" id="pane-veh">
       <p class="hint">Vos dimensions servent à <b>calculer un itinéraire adapté</b> (avec une clé TomTom) et à vous <b>alerter</b> à l'approche des restrictions. Renseignez celles qui vous concernent — elles sont sauvegardées.<br><b>⚠ Les alertes reposent sur les données OpenStreetMap : elles ne remplacent jamais les panneaux routiers.</b></p>
+      <label class="lb">Profil utilisé</label>
+      <div class="chips" id="vehChips">
+        <button class="chip on" data-veh="0">Véhicule 1</button>
+        <button class="chip" data-veh="1">Véhicule 2</button>
+      </div>
+      <p class="hint">Deux profils enregistrés séparément — par exemple le camping-car et la voiture. Le profil sélectionné est celui qui sert au calcul et aux alertes.</p>
+      <label class="lb">Nom du profil</label>
+      <input class="inp" id="vName" type="text" maxlength="24" placeholder="ex. Camping-car">
       <label class="lb">Hauteur (m) — la plus critique</label>
       <input class="inp" id="vH" type="number" inputmode="decimal" step="0.05" placeholder="ex. 3.10">
       <div class="grid2">
@@ -646,9 +668,8 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
   "use strict";
   if (typeof L === 'undefined' || typeof protomapsL === 'undefined') return;   // rien à initialiser sans Leaflet / protomaps-leaflet
 
-  // Instances Overpass, essayées dans l'ordre. Les serveurs publics renvoient un
-  // 429 / 504 (corps HTML, pas du JSON) quand ils sont saturés : on bascule alors
-  // sur le suivant plutôt que d'abandonner.
+  // Instances Overpass. Les serveurs publics renvoient un 429 / 504 (corps HTML,
+  // pas du JSON) quand ils sont saturés, ou mettent très longtemps à répondre.
   var OVERPASS_MIRRORS = [
     'https://overpass-api.de/api/interpreter',
     'https://overpass.kumi.systems/api/interpreter',
@@ -656,29 +677,69 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
   ];
   var overpassIdx = 0; // dernier miroir qui a répondu : on repart de là
 
-  function overpassFetch(query, signal){
-    var tried = 0, lastErr = null;
+  // Requêtes « en cascade décalée » : on interroge le miroir connu, et si rien
+  // n'est revenu au bout de HEDGE_MS on lance le suivant en parallèle sans
+  // abandonner le premier — la première réponse valable gagne. Attendre l'échec
+  // complet d'un miroir saturé (jusqu'à 25 s) avant d'essayer le suivant était
+  // la cause principale de la lenteur ressentie.
+  var OVERPASS_HEDGE_MS = 1200;
 
-    function attempt(i){
-      return fetch(OVERPASS_MIRRORS[i], { method:'POST', body:query, signal:signal })
-        .then(function(r){
-          if(!r.ok) throw new Error('overpass '+r.status);
-          return r.json(); // un corps HTML lèvera ici : même traitement
-        })
-        .then(function(d){ overpassIdx = i; return d; })
-        .catch(function(e){
-          if(e && e.name==='AbortError') throw e; // requête annulée : on n'insiste pas
-          lastErr = e;
-          tried++;
-          if(tried >= OVERPASS_MIRRORS.length) throw lastErr;
-          return attempt((i+1) % OVERPASS_MIRRORS.length);
-        });
+  function overpassFetch(query, signal){
+    var mirrors = OVERPASS_MIRRORS.length;
+    var ac = ('AbortController' in window) ? new AbortController() : null;
+    // Annulation venue de l'appelant : on coupe toutes les tentatives en vol.
+    if(signal && ac){
+      if(signal.aborted) ac.abort();
+      else signal.addEventListener('abort', function(){ ac.abort(); });
     }
-    return attempt(overpassIdx);
+
+    return new Promise(function(resolve, reject){
+      var settled=false, failed=0, lastErr=null, timers=[];
+
+      function cleanup(){
+        timers.forEach(clearTimeout); timers=[];
+      }
+      function win(d, i){
+        if(settled) return;
+        settled=true; overpassIdx=i; cleanup();
+        if(ac) ac.abort();      // les autres tentatives ne servent plus à rien
+        resolve(d);
+      }
+      function lose(e){
+        if(settled) return;
+        if(e && e.name==='AbortError' && signal && signal.aborted){
+          settled=true; cleanup(); reject(e); return;   // annulé par l'appelant
+        }
+        if(e && e.name==='AbortError') return;          // annulé parce qu'un autre a gagné
+        lastErr=e;
+        if(++failed >= mirrors){ settled=true; cleanup(); reject(lastErr); }
+      }
+      function launch(n){
+        if(settled) return;
+        var i = (overpassIdx + n) % mirrors;
+        fetch(OVERPASS_MIRRORS[i], { method:'POST', body:query, signal: ac?ac.signal:undefined })
+          .then(function(r){
+            if(!r.ok) throw new Error('overpass '+r.status);
+            return r.json(); // un corps HTML lèvera ici : même traitement
+          })
+          .then(function(d){ win(d, i); }, lose);
+      }
+
+      launch(0);
+      for(var n=1;n<mirrors;n++){
+        (function(k){ timers.push(setTimeout(function(){ launch(k); }, OVERPASS_HEDGE_MS*k)); })(n);
+      }
+    });
   }
 
   // ---------- State ----------
-  var vehicle = { h:null, w:null, l:null, len:null };
+  // Deux profils de gabarit enregistrés côte à côte (camping-car / voiture…).
+  // `vehicle` pointe toujours sur le profil actif : tout le reste du code
+  // (routage TomTom/ORS, alertes de hauteur) continue de lire `vehicle.h` & co.
+  function blankVehicle(n){ return { name:'Véhicule '+n, h:null, w:null, l:null, len:null }; }
+  var vehicles = [ blankVehicle(1), blankVehicle(2) ];
+  var activeVeh = 0;
+  var vehicle = vehicles[activeVeh];
   var pts = { from:null, to:null }; // {lat,lng,label}
   var markers = { from:null, to:null };
   var routeLayer = null, poiLayer = null, warnLayer = null;
@@ -1418,25 +1479,25 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
   }
 
   // ---------- POI (Overpass) ----------
+  // `nw` = nœuds + chemins en une seule passe : deux fois moins de sélecteurs à
+  // évaluer côté Overpass qu'avec des `node[...]` et `way[...]` séparés. Les
+  // valeurs multiples sont groupées en expression régulière, pour la même raison.
   var POI = {
     aire:  { emoji:'🅿️', color:'#2563eb', name:'Aire camping-car',
-             q:['node["tourism"="caravan_site"]','way["tourism"="caravan_site"]'] },
+             q:['nw["tourism"="caravan_site"]'] },
     camp:  { emoji:'⛺', color:'#16a34a', name:'Camping',
-             q:['node["tourism"="camp_site"]','way["tourism"="camp_site"]'] },
+             q:['nw["tourism"="camp_site"]'] },
     park:  { emoji:'🅿', color:'#64748b', name:'Parking',
-             q:['node["amenity"="parking"]','way["amenity"="parking"]'] },
+             q:['nw["amenity"="parking"]'] },
     food:  { emoji:'🍽️', color:'#e11d48', name:'Restaurant',
-             q:['node["amenity"="restaurant"]','way["amenity"="restaurant"]',
-                'node["amenity"="fast_food"]','way["amenity"="fast_food"]'] },
+             q:['nw["amenity"~"^(restaurant|fast_food)$"]'] },
     shop:  { emoji:'🛒', color:'#7c3aed', name:'Supermarché',
-             q:['node["shop"="supermarket"]','way["shop"="supermarket"]'] },
+             q:['nw["shop"="supermarket"]'] },
+    // Les sites touristiques sans nom sont écartés à l'affichage : on demande
+    // directement à Overpass de ne renvoyer que ceux qui en ont un.
     tourism:{ emoji:'🏛️', color:'#0d9488', name:'Site touristique',
-             q:['node["tourism"="attraction"]','way["tourism"="attraction"]',
-                'node["tourism"="museum"]','way["tourism"="museum"]',
-                'node["tourism"="viewpoint"]',
-                'node["historic"="castle"]','way["historic"="castle"]',
-                'node["historic"="monument"]','way["historic"="monument"]',
-                'node["historic"="ruins"]','way["historic"="ruins"]'] }
+             q:['nw["tourism"~"^(attraction|museum|viewpoint)$"]["name"]',
+                'nw["historic"~"^(castle|monument|ruins)$"]["name"]'] }
   };
   var activeCats = {}; // aucune catégorie cochée au démarrage
   document.querySelectorAll('#poiChips .chip').forEach(function(ch){
@@ -1469,7 +1530,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
 
     // Un « out » par catégorie : la limite de 30 s'applique à chacune,
     // sinon une seule catégorie prolifique mangerait tout le quota.
-    var q='[out:json][timeout:25];';
+    var q='[out:json][timeout:20];';
     cats.forEach(function(c){
       q += '(' + POI[c].q.map(function(sel){ return sel+'('+bb.join(',')+');'; }).join('') + ');out center 30;';
     });
@@ -1527,8 +1588,9 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     items.forEach(function(it){ it.d=map.distance(center,[it.lat,it.lng]); });
     items.sort(function(a,b){return a.d-b.d;});
     items.slice(0,80).forEach(function(it){
-      var p=POI[it.cat];
-      var lbl=subLabel(it.cat, it.tags||{});
+      // Deux origines possibles : Overpass (it.cat) ou la base CCI embarquée (it.cci).
+      var p   = it.cci ? CCI[it.cci] : POI[it.cat];
+      var lbl = it.cci ? CCI[it.cci].name : subLabel(it.cat, it.tags||{});
       var setDest=function(){
         setPoint('to', it.lat, it.lng, it.name);
         $('#toInp').value = it.name;
@@ -1557,6 +1619,108 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     toast(items.length+' résultat(s). Touchez un marqueur pour en faire votre destination.',3500);
   }
 
+  // ---------- Base d'aires camping-car embarquée (campingcar-infos, .asc) ----------
+  // Fichier POI au format « longitude,latitude,"CODE PAYS VILLE … Aire CCI <id>" ».
+  // Chargé une seule fois puis gardé en mémoire : la recherche est locale, donc
+  // instantanée et disponible hors connexion, contrairement à Overpass.
+  var CCI_URL = 'aires/ATOTALES_CCI.asc';
+  var CCI = {
+    ASN: { emoji:'🌙', color:'#0ea5e9', name:'Services + stationnement nuit' },
+    AS:  { emoji:'🛠️', color:'#2563eb', name:'Services uniquement' },
+    APN: { emoji:'🌜', color:'#7c3aed', name:'Parking toléré jour et nuit, sans services' },
+    APCC:{ emoji:'🅿', color:'#64748b', name:'Parking réservé camping-cars, sans services' },
+    AA:  { emoji:'🛣️', color:'#f59e0b', name:'Services sur autoroute' },
+    AC:  { emoji:'⛺', color:'#16a34a', name:'Camping acceptant les camping-cars' },
+    ACF: { emoji:'🚜', color:'#65a30d', name:'Camping à la ferme' },
+    ACS: { emoji:'🚿', color:'#0d9488', name:'Services sur camping (passage)' }
+  };
+
+  var cciActive = {};
+  document.querySelectorAll('#cciChips .chip').forEach(function(ch){
+    cciActive[ch.dataset.cci] = ch.classList.contains('on');
+    ch.addEventListener('click', function(){
+      var c=ch.dataset.cci; cciActive[c]=!cciActive[c];
+      ch.classList.toggle('on', cciActive[c]);
+    });
+  });
+
+  // Retire le suffixe « Aire CCI 1234 » et resserre les espaces doubles du fichier.
+  function cciName(rest){
+    var m = rest.match(/^([\s\S]*?)\s*Aire\s+CCI\s*(\d+)\s*$/i);
+    var base = (m ? m[1] : rest).replace(/\s{2,}/g,' ').trim();
+    return { name: base || 'Aire camping-car', id: m ? m[2] : null };
+  }
+
+  function parseAsc(txt){
+    var out=[], lines=txt.split(/\r?\n/);
+    for(var i=0;i<lines.length;i++){
+      var ln=lines[i];
+      if(!ln) continue;
+      var q=ln.indexOf('"');
+      if(q<0) continue;
+      var head=ln.slice(0,q).split(',');
+      var lon=parseFloat(head[0]), lat=parseFloat(head[1]);
+      if(isNaN(lon) || isNaN(lat)) continue;
+      var label=ln.slice(q+1).replace(/"\s*$/,'');
+      var sp=label.indexOf(' ');
+      if(sp<1) continue;
+      var code=label.slice(0,sp);
+      if(!CCI[code]) continue;              // catégorie inconnue : on ignore la ligne
+      var n=cciName(label.slice(sp+1));
+      out.push({ lat:lat, lng:lon, cci:code, name:n.name, cciId:n.id });
+    }
+    return out;
+  }
+
+  var cciData=null, cciLoading=null;
+  function loadCci(){
+    if(cciData) return Promise.resolve(cciData);
+    if(cciLoading) return cciLoading;
+    cciLoading = fetch(CCI_URL)
+      .then(function(r){ if(!r.ok) throw new Error('asc '+r.status); return r.text(); })
+      .then(function(txt){ cciData=parseAsc(txt); cciLoading=null; return cciData; })
+      .catch(function(e){ cciLoading=null; throw e; });
+    return cciLoading;
+  }
+
+  $('#searchCci').addEventListener('click', function(){
+    var codes=Object.keys(cciActive).filter(function(k){ return cciActive[k]; });
+    if(!codes.length){ toast('Choisissez au moins un type d\'aire.'); return; }
+    var b=map.getBounds();
+    if(!cciData) toast('<span class="spin"></span>Chargement de la base des aires…',0);
+    loadCci().then(function(all){
+      hideToast();
+      clearPois();
+      var wanted={}; codes.forEach(function(c){ wanted[c]=true; });
+      var s=b.getSouth(), n=b.getNorth(), w=b.getWest(), e=b.getEast();
+      var items=[];
+      for(var i=0;i<all.length;i++){
+        var a=all[i];
+        if(a.lat<s || a.lat>n || a.lng<w || a.lng>e) continue;
+        if(!wanted[a.cci]) continue;
+        items.push(a);
+      }
+      if(!items.length){
+        $('#poiList').innerHTML='<div class="empty">Aucune aire de ces types dans la zone affichée. Dézoomez ou déplacez la carte.</div>';
+        toast('Aucune aire trouvée ici.',2500);
+        return;
+      }
+      var total=items.length;
+      if(total>250){
+        // Trop d'aires pour la carte : on garde les plus proches du centre.
+        var c=map.getCenter();
+        items.forEach(function(it){ it.d=map.distance(c,[it.lat,it.lng]); });
+        items.sort(function(x,y){ return x.d-y.d; });
+        items=items.slice(0,250);
+      }
+      renderPois(items);
+      if(total>250) toast(total+' aires dans la zone — les 250 plus proches sont affichées. Zoomez pour affiner.',4500);
+    }).catch(function(){
+      hideToast();
+      toast('Base des aires introuvable (aires/ATOTALES_CCI.asc).',4500);
+    });
+  });
+
   // ---------- Vehicle profile ----------
   function vehHint(){
     var t=$('#vehEngineHint');
@@ -1565,14 +1729,52 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     if(orsKey) { t.textContent='Clé Openrouteservice active : l\'itinéraire est calculé pour votre gabarit, sans trafic.'; return; }
     t.textContent='Aucune clé : routage voiture standard — seules les alertes fonctionnent. Touchez 🔑 pour ajouter une clé.';
   }
-  $('#saveVeh').addEventListener('click', function(){
+  // Recopie les champs de saisie dans le profil actif (sans persister).
+  function readVehInputs(){
+    var n = ($('#vName').value||'').trim();
+    vehicle.name = n || ('Véhicule '+(activeVeh+1));
     vehicle.h  = num(parseFloat($('#vH').value));
     vehicle.w  = num(parseFloat($('#vW').value));
     vehicle.l  = num(parseFloat($('#vL').value));
     vehicle.len= num(parseFloat($('#vLen').value));
+  }
+  // Remplit les champs depuis le profil actif.
+  function fillVehInputs(){
+    $('#vName').value = vehicle.name || '';
+    $('#vH').value   = vehicle.h  !=null ? vehicle.h   : '';
+    $('#vW').value   = vehicle.w  !=null ? vehicle.w   : '';
+    $('#vL').value   = vehicle.l  !=null ? vehicle.l   : '';
+    $('#vLen').value = vehicle.len!=null ? vehicle.len : '';
+  }
+  function renderVehChips(){
+    document.querySelectorAll('#vehChips .chip').forEach(function(ch){
+      var i = +ch.dataset.veh;
+      ch.textContent = vehicles[i].name || ('Véhicule '+(i+1));
+      ch.classList.toggle('on', i===activeVeh);
+    });
+  }
+  function setActiveVeh(i, save){
+    if(i===activeVeh || !vehicles[i]) return;
+    readVehInputs();          // ce qui était saisi n'est pas perdu en changeant d'onglet
+    activeVeh = i;
+    vehicle = vehicles[activeVeh];
+    fillVehInputs(); renderVehChips(); vehHint();
+    if(save) saveVehicleStore();
+    warnKey=''; // gabarit différent : le contrôle des hauteurs doit être refait
+    if(pts.from && pts.to) calcRoute();
+    toast('Profil « '+esc(vehicle.name)+' » sélectionné.',2200);
+  }
+  document.querySelectorAll('#vehChips .chip').forEach(function(ch){
+    ch.addEventListener('click', function(){ setActiveVeh(+ch.dataset.veh, true); });
+  });
+
+  $('#saveVeh').addEventListener('click', function(){
+    readVehInputs();
     saveVehicleStore();
+    renderVehChips();
     vehHint();
-    toast(vehicle.h!=null ? ('Profil enregistré · hauteur '+vehicle.h.toFixed(2)+' m') : 'Profil enregistré.');
+    toast(vehicle.h!=null ? ('« '+esc(vehicle.name)+' » enregistré · hauteur '+vehicle.h.toFixed(2)+' m')
+                          : ('« '+esc(vehicle.name)+' » enregistré.'));
     warnKey=''; // le profil a changé : le contrôle doit être refait
     if(pts.from && pts.to) calcRoute(); // les dimensions changent aussi l'itinéraire TomTom
   });
@@ -1626,18 +1828,29 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
       var f=JSON.parse(localStorage.getItem('cc_favs')||'[]'); if(Array.isArray(f)) favorites=f;
     }catch(e){}
     try{
-      var v=JSON.parse(localStorage.getItem('cc_vehicle')||'null');
-      if(v){
-        vehicle={ h:num(v.h), w:num(v.w), l:num(v.l), len:num(v.len) };
-        if(vehicle.h!=null)$('#vH').value=vehicle.h;
-        if(vehicle.w!=null)$('#vW').value=vehicle.w;
-        if(vehicle.l!=null)$('#vL').value=vehicle.l;
-        if(vehicle.len!=null)$('#vLen').value=vehicle.len;
+      var readVeh = function(v, n){
+        if(!v) return blankVehicle(n);
+        return { name:(typeof v.name==='string' && v.name.trim()) ? v.name.trim() : ('Véhicule '+n),
+                 h:num(v.h), w:num(v.w), l:num(v.l), len:num(v.len) };
+      };
+      var multi=JSON.parse(localStorage.getItem('cc_vehicles')||'null');
+      if(multi && Array.isArray(multi.v)){
+        vehicles = [ readVeh(multi.v[0],1), readVeh(multi.v[1],2) ];
+        activeVeh = (multi.a===1) ? 1 : 0;
+      } else {
+        // Ancien format mono-profil : on le reprend comme premier véhicule.
+        var v=JSON.parse(localStorage.getItem('cc_vehicle')||'null');
+        if(v) vehicles[0] = readVeh(v,1);
       }
+      vehicle = vehicles[activeVeh];
+      fillVehInputs(); renderVehChips();
     }catch(e){}
   }
   function saveFavs(){ if(HAS_LS){ try{ localStorage.setItem('cc_favs', JSON.stringify(favorites)); }catch(e){} } }
-  function saveVehicleStore(){ if(HAS_LS){ try{ localStorage.setItem('cc_vehicle', JSON.stringify(vehicle)); }catch(e){} } }
+  function saveVehicleStore(){
+    if(!HAS_LS) return;
+    try{ localStorage.setItem('cc_vehicles', JSON.stringify({ a:activeVeh, v:vehicles })); }catch(e){}
+  }
 
   var favSeq=0;
   function newFavId(){ return Date.now()*1000 + (favSeq++ % 1000); }

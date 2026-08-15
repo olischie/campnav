@@ -579,7 +579,7 @@
       </div>
       <button class="btn" id="searchPoi">Chercher dans cette zone</button>
       <button class="btn ghost" id="clearPoi" style="display:none">Effacer les services de la carte</button>
-      <p class="hint">Données <b>OpenStreetMap</b> en direct. La recherche porte sur la portion de carte visible, et ramène jusqu'à 30 lieux par catégorie. Déplacez / dézoomez la carte puis relancez pour élargir.<br>Cochez peu de catégories à la fois : chacune ajoute une requête au serveur.</p>
+      <p class="hint">Données <b>OpenStreetMap</b> en direct. La recherche porte sur la portion de carte visible, et ramène jusqu'à 40 lieux par type de données interrogé ; la liste affiche les 80 plus proches du centre de la carte. Déplacez / dézoomez la carte puis relancez pour élargir. Si la vue est trop vaste, la recherche se limite d'elle-même à une zone centrale d'environ 7 000 km², tracée en pointillés bleus.<br>Cochez peu de catégories à la fois : chacune alourdit la requête, sauf celles qui partagent les mêmes données (les trois variantes d'aires, par exemple, n'en coûtent qu'une).</p>
       <div id="poiList"></div>
     </div>
 
@@ -1620,6 +1620,46 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     toast('Services effacés de la carte.',2000);
   });
 
+  // Au-delà de cette surface, Overpass expire ou renvoie un quota dépassé.
+  // Le seuil est en km² et non en degrés² : un degré de longitude vaut 79 km en
+  // Bretagne mais 55 km en Laponie, et une limite en degrés offrirait au nord
+  // une zone deux fois plus petite qu'au sud pour un même effort serveur.
+  var POI_MAX_AREA_KM2 = 7000; // ≈ 100 km × 70 km
+
+  var KM_PER_DEG = 111.32;
+  function bboxAreaKm2(bb){
+    // Le méridien central suffit : sur une vue de cette taille, l'écart de
+    // convergence entre le bord nord et le bord sud reste sous le pour-cent.
+    var mLat=(bb[0]+bb[2])/2;
+    return (bb[2]-bb[0])*KM_PER_DEG * (bb[3]-bb[1])*KM_PER_DEG*Math.cos(mLat*Math.PI/180);
+  }
+
+  // Vue trop vaste : plutôt que de renvoyer l'utilisateur zoomer, on taille
+  // nous-mêmes la plus grande zone exploitable. On la centre sur le milieu de
+  // l'écran — là où se porte le regard — et on garde les proportions de la vue,
+  // pour que le cadre reste celui qu'on avait sous les yeux, en plus petit.
+  // Modifie `bb` sur place et indique si un recadrage a eu lieu.
+  function fitSearchArea(bb){
+    var dLat=bb[2]-bb[0], dLng=bb[3]-bb[1], area=bboxAreaKm2(bb);
+    if(area<=POI_MAX_AREA_KM2) return false;
+    // Le centre est conservé, donc le facteur cosinus aussi : la surface varie
+    // bien comme le carré du facteur d'échelle.
+    var k=Math.sqrt(POI_MAX_AREA_KM2/area)/2;
+    var cLat=(bb[0]+bb[2])/2, cLng=(bb[1]+bb[3])/2;
+    bb[0]=cLat-dLat*k; bb[2]=cLat+dLat*k;
+    bb[1]=cLng-dLng*k; bb[3]=cLng+dLng*k;
+    return true;
+  }
+
+  // Matérialise la zone réellement interrogée : sans ce cadre, l'absence de
+  // résultats sur les bords de la carte passerait pour un trou dans les données.
+  function showSearchArea(bb){
+    L.rectangle([[bb[0],bb[1]],[bb[2],bb[3]]],
+      { color:'#2563eb', weight:2, dashArray:'6 6', fill:false, interactive:false })
+      .addTo(poiLayer);
+    $('#clearPoi').style.display='block'; // sinon le cadre resterait sans moyen de l'effacer
+  }
+
   // Les serveurs Overpass publics répondent entre 2 s et 35 s selon leur charge,
   // et échouent parfois : on garde donc les éléments bruts déjà obtenus. Un
   // nouveau tri de catégories, ou un zoom dans une zone déjà couverte, devient
@@ -1664,8 +1704,9 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     var cats=Object.keys(activeCats).filter(function(k){return activeCats[k];});
     if(!cats.length){ toast('Choisissez au moins une catégorie.'); return; }
     var b=map.getBounds(), bb=[b.getSouth(),b.getWest(),b.getNorth(),b.getEast()];
-    if((bb[2]-bb[0])*(bb[3]-bb[1])>0.8){ toast('Zone trop large — zoomez un peu puis relancez.'); return; }
+    var reduced=fitSearchArea(bb);
     clearPois();
+    if(reduced) showSearchArea(bb);
     // La recherche porte sur la zone visible : on referme le panneau pour la
     // découvrir, et les marqueurs apparaissent ensuite sous les yeux. La liste
     // reste disponible en rouvrant le panneau (poignée en bas).
@@ -1683,9 +1724,10 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     var bases=Object.keys(set).sort();
 
     var hit=cacheGet(bases, bb);
-    if(hit){ renderPois(poiItems(hit, wanted, bb)); return; }  // déjà en mémoire
+    if(hit){ renderPois(poiItems(hit, wanted, bb), reduced); return; }  // déjà en mémoire
 
-    toast('<span class="spin"></span>Recherche des services…',0);
+    toast('<span class="spin"></span>Recherche des services…'+
+      (reduced?' (zone trop vaste : limitée au cadre bleu)':''),0);
     // Un « out » par base : la limite s'applique à chacune, sinon une base
     // prolifique (les parkings) mangerait tout le quota des autres.
     var q='[out:json][timeout:20];';
@@ -1700,7 +1742,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
         hideToast();
         var els=d.elements||[];
         cachePut(bases, bb, els);
-        renderPois(poiItems(els, wanted, bb));
+        renderPois(poiItems(els, wanted, bb), reduced);
       })
       .catch(function(e){
         if(e && e.name==='AbortError') return;
@@ -1813,9 +1855,14 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     return u.replace(/^https?:\/\//i,'').replace(/^www\./i,'').split(/[\/?#]/)[0];
   }
 
-  function renderPois(items){
+  function renderPois(items, reduced){
     var list=$('#poiList');
-    if(!items.length){ list.innerHTML='<div class="empty">Rien trouvé dans cette zone. Élargissez la carte et relancez.</div>'; return; }
+    if(!items.length){
+      // Inutile de conseiller d'élargir une zone déjà ramenée au maximum permis.
+      list.innerHTML='<div class="empty">Rien trouvé dans cette zone. '+
+        (reduced?'Déplacez la carte vers une autre zone et relancez.':'Élargissez la carte et relancez.')+'</div>';
+      return;
+    }
     $('#clearPoi').style.display='block';
     var center=map.getCenter();
     items.forEach(function(it){ it.d=map.distance(center,[it.lat,it.lng]); });

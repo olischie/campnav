@@ -6,7 +6,6 @@
 <meta name="theme-color" content="#eef1f6" id="themeColorMeta">
 <meta name="referrer" content="no-referrer-when-downgrade">
 <meta name="description" content="GPS de navigation pour camping-car : itinéraire adapté au gabarit, alertes de hauteur, aires et services, guidage vocal, favoris et trafic en direct. Mobile-first.">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' https://cdnjs.cloudflare.com https://unpkg.com https://api.protomaps.com https://*.openstreetmap.org https://*.project-osrm.org https://api.openrouteservice.org https://overpass-api.de https://overpass.kumi.systems https://overpass.private.coffee https://api.tomtom.com data: blob:; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://*.openstreetmap.org https://api.protomaps.com; connect-src 'self' https://*.openstreetmap.org https://*.project-osrm.org https://api.openrouteservice.org https://overpass-api.de https://overpass.kumi.systems https://overpass.private.coffee https://api.tomtom.com https://api.protomaps.com https://nominatim.openstreetmap.org; worker-src 'self' blob:;">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -35,28 +34,21 @@
     --puck:68%;
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
-  html{height:100%;}
   html,body{margin:0;height:100%;}
   body{
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     background:var(--bg); color:var(--ink); overflow:hidden;
-    height:100dvh; height:100svh; min-height:-webkit-fill-available;
-    position:fixed; inset:0;
-    overscroll-behavior:none; -webkit-text-size-adjust:100%;
+    height:100dvh; position:fixed; inset:0;
   }
-  @supports (height:100dvh){ body{ height:100dvh; } }
   .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
 
   #map{
     position:absolute; inset:0; z-index:0; background:#0c0f16;
     transform-origin:50% 50%; transition:transform .35s ease-out;
-    will-change:transform; transform:translateZ(0);
   }
   /* En navigation, la carte est un carré plus grand que l'écran, centré sur le
      véhicule : la rotation autour de son centre ne découvre jamais de coin vide. */
   body.nav #map{
-    will-change:transform;
-
     inset:auto; left:50%; top:var(--puck);
     width:var(--navd); height:var(--navd);
     margin-left:calc(var(--navd) / -2);
@@ -475,11 +467,10 @@
     .tab{ font-size:11px; }
   }
 </style>
-<script>console.log('GPS CC V3 - Leaflet SRI fixed'); window.addEventListener('error', function(e){ if(e.target && e.target.tagName==='LINK' || e.target.tagName==='SCRIPT'){ console.error('Ressource bloquée:', e.target.src||e.target.href); var t=document.getElementById('toast'); if(t){ t.textContent='Erreur chargement carte - vérifie la console (F12)'; t.classList.add('show'); }}}}, true);</script>
 </head>
 <body>
 
-<div id="map"></div>
+<div id="map"><noscript>Activez JavaScript pour voir la carte</noscript></div>
 
 <!-- Overlays navigation guidée -->
 <div id="navTop">
@@ -538,7 +529,7 @@
   <div class="cell"><div class="k">Gabarit</div><div class="v clear"><span class="lamp off" id="dLamp"></span><span id="dClear" style="font-size:13px;color:var(--muted)">n/c</span></div></div>
 </div>
 
-<div id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+<div id="toast"></div>
 
 <div id="sheet">
   <div class="grip" id="grip"><div class="bar"></div></div>
@@ -793,55 +784,6 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
   var vehicle = vehicles[activeVeh];
   var pts = { from:null, to:null }; // {lat,lng,label}
   var markers = { from:null, to:null };
-
-  // ---------- Améliorations V2 : WakeLock, Permissions, Vitesse, Batterie ----------
-  var wakeLock=null;
-  async function requestWakeLock(){
-    try{
-      if('wakeLock' in navigator){
-        wakeLock = await navigator.wakeLock.request('screen');
-        wakeLock.addEventListener('release', function(){ /* released */ });
-        document.addEventListener('visibilitychange', async function(){
-          if(document.visibilityState==='visible' && navActive){
-            try{ wakeLock = await navigator.wakeLock.request('screen'); }catch(e){}
-          }
-        });
-      }
-    }catch(e){}
-  }
-  function releaseWakeLock(){ try{ if(wakeLock){ wakeLock.release(); wakeLock=null; } }catch(e){} }
-  async function checkGeoPermission(){
-    try{
-      if(navigator.permissions && navigator.permissions.query){
-        var st = await navigator.permissions.query({name:'geolocation'});
-        if(st.state==='denied'){ toast('📍 Autorise la localisation dans les réglages du navigateur', 5000); return false; }
-      }
-    }catch(e){}
-    return true;
-  }
-  // Lissage vitesse et cap
-  var speedBuffer=[], lastHeading=null;
-  function smoothSpeed(rawMps){
-    if(rawMps==null || isNaN(rawMps) || rawMps<0) return null;
-    speedBuffer.push(rawMps);
-    if(speedBuffer.length>5) speedBuffer.shift();
-    var avg = speedBuffer.reduce(function(a,b){return a+b;},0)/speedBuffer.length;
-    return avg;
-  }
-  function smoothHeading(newH){
-    if(newH==null || isNaN(newH)) return lastHeading;
-    if(lastHeading==null){ lastHeading=newH; return newH; }
-    // plus court chemin circulaire
-    var diff = ((newH - lastHeading + 540)%360)-180;
-    lastHeading = (lastHeading + diff*0.25 + 360)%360;
-    return lastHeading;
-  }
-  // Nettoyage mémoire
-  function clearRouteMemory(){
-    routeXY=null;
-    if(routeCoords) routeCoords=null;
-  }
-
   var routeLayer = null, poiLayer = null, warnLayer = null;
   var lastRoute = null;
   var routeCoords = null;
@@ -890,19 +832,12 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     var meta = document.getElementById('themeColorMeta');
     if(meta) meta.setAttribute('content', b.dark ? '#12161f' : '#eef1f6');
     if(!pmKey){
-      // Fallback OSM raster gratuit sans clé si Protomaps absent
-      console.log('Pas de clé Protomaps - fallback OSM');
+      // Fallback OSM gratuit sans clé
+      setTimeout(function(){ toast('Mode carte OSM - ajoutez une clé Protomaps en Options pour le mode vectoriel', 4000); }, 500);
       tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom:19,
         attribution:'&copy; OpenStreetMap'
       }).addTo(map);
-      // Supprime aide si présente
-      var h=document.getElementById('pmKeyHelp'); if(h) h.remove();
-      applyTileFilter(); return;
-    }
-      // toast() n'est défini que plus bas dans ce script (mais hissé) ; toastEl
-      // n'est affecté qu'ensuite, donc on diffère l'appel après ce tour de boucle.
-      setTimeout(function(){ toast('Ajoutez une clé Protomaps gratuite dans l\'onglet Options pour afficher le fond de carte.', 6000); }, 300);
       applyTileFilter();
       return;
     }
@@ -939,18 +874,9 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
 
   var toastEl = $('#toast'), toastT = null;
   function toast(html, ms){
-    // Sécurisé : supporte texte et petit HTML contrôlé (spinner)
-    toastEl.textContent = '';
-    if(typeof html === 'string' && html.indexOf('<span class="spin"')!==-1){
-      var sp=document.createElement('span'); sp.className='spin'; toastEl.appendChild(sp);
-      toastEl.appendChild(document.createTextNode(' '+html.replace(/<[^>]+>/g,'')));
-    }else{
-      toastEl.textContent = typeof html==='string' ? html : '';
-    }
-    toastEl.classList.add('show');
+    toastEl.innerHTML = html; toastEl.classList.add('show');
     if(toastT) clearTimeout(toastT);
     if(ms!==0) toastT = setTimeout(function(){ toastEl.classList.remove('show'); }, ms||2600);
-    try{ if('vibrate' in navigator) navigator.vibrate(20); }catch(e){}
   }
   function hideToast(){ toastEl.classList.remove('show'); }
   function fmtKm(m){ return m>=1000 ? (m/1000).toFixed(m<10000?1:0)+' km' : Math.round(m)+' m'; }
@@ -1376,7 +1302,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     }).catch(function(){ hideToast(); toast('Service d\'itinéraire indisponible. Réessayez dans un instant.'); });
   }
 
-  function clearRouteLayers(){ clearRouteMemory();
+  function clearRouteLayers(){
     if(routeLayer){ map.removeLayer(routeLayer); routeLayer=null; }
   }
 
@@ -2634,7 +2560,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
   }
 
   var lastGpsWarn=0;
-  async function startNav(){ if(!(await checkGeoPermission())) return; requestWakeLock();
+  function startNav(){
     if(!lastRoute || !routeCoords){ toast('Calculez d\'abord un itinéraire.'); return; }
     if(!navigator.geolocation){ toast('Géolocalisation non disponible sur cet appareil.'); return; }
     navSteps=flattenSteps(lastRoute);
@@ -2663,11 +2589,11 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     navWatch=navigator.geolocation.watchPosition(onNavPos, function(){
       var t=Date.now();
       if(t-lastGpsWarn>20000){ lastGpsWarn=t; toast('Signal GPS perdu…',1500); }
-    }, { enableHighAccuracy:true, maximumAge: navActive ? 800 : 3000, timeout:15000 });
+    }, { enableHighAccuracy:true, maximumAge:1000, timeout:12000 });
   }
 
   function stopNav(){
-    navActive=false; following=true; releaseWakeLock(); speedBuffer=[]; lastHeading=null;
+    navActive=false; following=true;
     resetRotation();
     document.body.classList.remove('nav');
     map.invalidateSize({animate:false});
@@ -2685,19 +2611,6 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
   }
 
   function onNavPos(pos){
-    try{
-      var rawSpeed = (pos.coords && pos.coords.speed!=null) ? smoothSpeed(pos.coords.speed) : null;
-      var kmh = rawSpeed!=null ? Math.round(rawSpeed*3.6) : null;
-      var el = document.getElementById('gSpeed');
-      if(el){ el.textContent = (kmh!=null && kmh>=1) ? kmh : '—'; }
-      // cap
-      if(pos.coords && pos.coords.heading!=null && !isNaN(pos.coords.heading)){
-        var h = smoothHeading(pos.coords.heading);
-        // on utilise le cap seulement en mouvement > 5 km/h pour éviter le jitter
-        if(kmh!=null && kmh>5) { document.documentElement.style.setProperty('--maprot', (-h)+'deg'); }
-      }
-    }catch(e){}
-
     if(!navActive) return;
     var lat=pos.coords.latitude, lng=pos.coords.longitude, hd=pos.coords.heading;
     var here=L.latLng(lat,lng);
@@ -2926,7 +2839,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
   // Enregistrement du service worker (mode hors-ligne + installation)
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function(){
-      navigator.serviceWorker.register('sw-improved.js').catch(function(){ /* ignoré si non servi en HTTPS */ });
+      navigator.serviceWorker.register('sw.js').catch(function(){ /* ignoré si non servi en HTTPS */ });
     });
   }
 </script>

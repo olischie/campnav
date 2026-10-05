@@ -1130,6 +1130,71 @@
   var routeXY = null;   // polyligne complète, pour le suivi de navigation
   var snapXY  = null;   // polyligne simplifiée, pour l'accrochage des restrictions
 
+  // ---------- Progression le long du tracé ----------
+  // routeXY.cum[i] : distance (m) du départ au sommet i du tracé.
+  // stepAlong[k]   : distance (m) du départ à la manœuvre k.
+  var stepAlong = [];
+  var STEP_PASSED = 15;
+  var lastStepDist = null; // dernière distance calculée jusqu'à la prochaine manœuvre   // marge (m) au-delà de laquelle une manœuvre est jugée dépassée
+
+  function buildCum(poly){
+    var p=poly.p, cum=new Array(p.length);
+    cum[0]=0;
+    for(var i=1;i<p.length;i++){
+      var dx=p[i][0]-p[i-1][0], dy=p[i][1]-p[i-1][1];
+      cum[i]=cum[i-1]+Math.sqrt(dx*dx+dy*dy);
+    }
+    poly.cum=cum;
+    return poly;
+  }
+  // Distance parcourue depuis le départ pour un point du tracé {lat,lng,i}
+  // renvoyé par nearestOn (i = fin du segment qui le porte).
+  function alongOf(pt){
+    var p=routeXY.p, i=Math.max(1, Math.min(pt.i, p.length-1));
+    var dx=pt.lng*routeXY.k - p[i-1][0], dy=pt.lat*110540 - p[i-1][1];
+    return routeXY.cum[i-1] + Math.sqrt(dx*dx+dy*dy);
+  }
+  // Premier sommet dont la distance cumulée atteint `m` (recherche dichotomique).
+  function idxAtAlong(m){
+    var c=routeXY.cum, lo=0, hi=c.length-1;
+    while(lo<hi){ var mid=(lo+hi)>>1; if(c[mid]<m) lo=mid+1; else hi=mid; }
+    return lo;
+  }
+  // Situe chaque manœuvre sur le tracé. Les moteurs donnent la longueur de
+  // chaque étape : leur somme indique à peu près où chercher, ce qui évite de
+  // rattacher une manœuvre au mauvais passage quand la route repasse au même
+  // endroit. On cherche ensuite le point du tracé le plus proche de la manœuvre,
+  // toujours en aval de la précédente.
+  function prepareStepAlong(){
+    stepAlong=[];
+    if(!routeXY || !routeXY.cum || !navSteps.length) return;
+    var total=routeXY.cum[routeXY.cum.length-1], last=routeXY.p.length-1;
+    var engineTotal=0, off=0, prevI=1, prevAlong=0, k;
+    for(k=0;k<navSteps.length;k++) engineTotal += (navSteps[k].distance||0);
+    // Les longueurs du moteur et celles du tracé diffèrent un peu : on ramène
+    // les premières à l'échelle des secondes.
+    var scale = engineTotal>0 ? total/engineTotal : 1;
+    for(k=0;k<navSteps.length;k++){
+      var s=navSteps[k], l=s.maneuver && s.maneuver.location, a;
+      var expected = off*scale;
+      if(k===navSteps.length-1 || !l){
+        a = (k===navSteps.length-1) ? total : expected;
+      } else {
+        var tol = Math.max(2000, expected*0.05);
+        var i0 = Math.max(prevI, idxAtAlong(expected-tol));
+        var i1 = Math.max(i0, idxAtAlong(expected+tol));
+        var r = nearestOn(routeXY, l[1], l[0], i0, i1);
+        if(!r || r.d>80) r = nearestOn(routeXY, l[1], l[0], prevI, last);
+        a = r ? alongOf(r) : expected;
+        if(r) prevI = r.i;
+      }
+      if(a < prevAlong) a = prevAlong;   // jamais en arrière de la manœuvre précédente
+      stepAlong.push(a);
+      prevAlong = a;
+      off += (s.distance||0);
+    }
+  }
+
   // ---------- Sheet ----------
   var sheet = $('#sheet');
   function openSheet(){ sheet.classList.add('open'); }
@@ -1523,7 +1588,7 @@
     clearRouteLayers();
     warnLayer.clearLayers();
     lastRoute=rt; routeCoords=rt.coords;
-    routeXY = buildXY(routeCoords);
+    routeXY = buildCum(buildXY(routeCoords));
     navIdx = 1;
     routeLayer = drawRoute(rt.coords);
     if(fit) fitCoords(rt.coords);
@@ -2810,8 +2875,9 @@
     if(!lastRoute || !routeCoords){ toast('Calculez d\'abord un itinéraire.'); return; }
     if(!navigator.geolocation){ toast('Géolocalisation non disponible sur cet appareil.'); return; }
     navSteps=flattenSteps(lastRoute);
+    prepareStepAlong();
     if(navSteps.length<2){ toast('Itinéraire trop court pour le guidage.'); return; }
-    navPtr=1; navIdx=1; offCount=0; trimPrev=null;
+    navPtr=1; navIdx=1; offCount=0; trimPrev=null; lastStepDist=null;
     spokenFar={}; spokenNear={}; spokenWarn={};
     navActive=true; following=true; lastAutoZoom=null; zoomSpeedFilt=null;
 
@@ -2911,14 +2977,31 @@
 
     var step=navSteps[navPtr];
     if(!step) return;
-    var loc=step.maneuver.location; // [lng,lat]
-    var target={lat:loc[1], lng:loc[0]};
-    var d=distM(here,target);
+
+    // Progression le long du tracé : on sait quelle distance a été parcourue
+    // depuis le départ, et à quelle distance du départ se trouve chaque
+    // manœuvre. Une manœuvre dépassée est donc reconnue même si aucune position
+    // GPS n'est tombée près du carrefour (GPS imprécis, vitesse élevée, tunnel).
+    var onRoute = near && near.d<=60 && stepAlong.length===navSteps.length;
+    var vAlong = onRoute ? alongOf(near) : null;
+    if(onRoute){
+      while(navPtr < navSteps.length-1 && vAlong > stepAlong[navPtr] + STEP_PASSED) navPtr++;
+      step=navSteps[navPtr];
+    }
+    // Distance jusqu'à la manœuvre : mesurée le long de la route quand on est sur
+    // le tracé (plus juste dans les virages qu'à vol d'oiseau), sinon à vol d'oiseau.
+    function distToStep(s, k){
+      if(onRoute) return Math.max(0, stepAlong[k] - vAlong);
+      var l=s.maneuver.location; // [lng,lat]
+      return distM(here, {lat:l[1], lng:l[0]});
+    }
+    var d=distToStep(step, navPtr);
 
     if(d<25 && navPtr<navSteps.length-1){
       navPtr++; step=navSteps[navPtr];
-      loc=step.maneuver.location; target={lat:loc[1], lng:loc[0]}; d=distM(here,target);
+      d=distToStep(step, navPtr);
     }
+    lastStepDist = d;
 
     applyAutoZoom(kmh, d, step.maneuver.type);
 
@@ -3005,11 +3088,12 @@
   function adoptRoute(rt, spokenMsg){
     hideAltBanner();          // toute proposition en attente devient caduque
     lastRoute=rt; routeCoords=rt.coords;
-    routeXY = buildXY(routeCoords);
+    routeXY = buildCum(buildXY(routeCoords));
     navIdx=1;
     clearRouteLayers();
     routeLayer = drawRoute(routeCoords);
-    navSteps=flattenSteps(rt); navPtr=1; trimPrev=null;
+    navSteps=flattenSteps(rt); navPtr=1; trimPrev=null; lastStepDist=null;
+    prepareStepAlong();
     spokenFar={}; spokenNear={}; spokenWarn={};
     routeWarnings=[]; warnLayer.clearLayers();
     warnKey='';
@@ -3039,7 +3123,8 @@
     if(!navSteps.length || !navLast) return 0;
     var step=navSteps[navPtr];
     var d=0;
-    if(step && step.maneuver && step.maneuver.location){
+    if(lastStepDist!=null) d = lastStepDist;   // même mesure que l'affichage (le long du tracé)
+    else if(step && step.maneuver && step.maneuver.location){
       d = distM(navLast, {lat:step.maneuver.location[1], lng:step.maneuver.location[0]});
     }
     return d + remainingFrom(navPtr);

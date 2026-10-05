@@ -1,10 +1,10 @@
 // Service Worker — GPS Camping-Car
 // Deux stratégies :
 //  - coquille de l'appli (index + libs) : "network-first" puis cache (toujours à jour si en ligne)
-//  - tuiles de carte : "cache-first" (les zones déjà consultées restent dispo hors-ligne)
+//  - tuiles, polices et pictogrammes de carte : "cache-first" (les zones déjà consultées restent dispo hors-ligne)
 
-const SHELL_CACHE = 'cc-shell-v9';
-const TILE_CACHE  = 'cc-tiles-v9';
+const SHELL_CACHE = 'cc-shell-v10';
+const TILE_CACHE  = 'cc-tiles-v10';
 
 const SHELL_ASSETS = [
   './',
@@ -14,13 +14,16 @@ const SHELL_ASSETS = [
   './icon-512.png',
   './icon-512-maskable.png',
   './apple-touch-icon.png',
-  'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css',
-  'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',
-  'https://unpkg.com/protomaps-leaflet/dist/protomaps-leaflet.js'
+  'https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css',
+  'https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js',
+  'https://unpkg.com/@protomaps/basemaps@5/dist/basemaps.js'
 ];
 
-// Hôte dont on met les tuiles vectorielles Protomaps en cache pour l'usage hors-ligne.
-const TILE_HOSTS = ['api.protomaps.com'];
+// Hôtes dont on met les ressources de carte en cache pour l'usage hors-ligne :
+// tuiles vectorielles Protomaps, polices et pictogrammes du style Protomaps
+// (sans eux, les noms de rues disparaissent hors réseau), et tuiles OpenStreetMap
+// du fond de secours.
+const TILE_HOSTS = ['api.protomaps.com', 'protomaps.github.io', 'tile.openstreetmap.org'];
 
 // Services en ligne : jamais interceptés, jamais mis en cache.
 // (api.tomtom.com contient la clé d'API dans l'URL : elle ne doit rien laisser sur le disque.)
@@ -74,7 +77,7 @@ self.addEventListener('fetch', (e) => {
           const res = await fetch(req);
           if (cacheable(res)) {
             await cache.put(req, res.clone());
-            trimCache(TILE_CACHE, 1200); // garde ~1200 tuiles récentes
+            trimCache(TILE_CACHE, 2000); // garde ~2000 ressources récentes
           }
           return res;
         } catch (err) {

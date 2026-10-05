@@ -4,14 +4,14 @@ Application web de navigation pensée pour les camping-cars, **optimisée mobile
 
 ## ✨ Fonctionnalités
 
-- **Carte interactive** plein écran (Leaflet), avec **choix du fond de carte** dans l'onglet Options : **OpenStreetMap** (contrasté, détaillé), **Topo** (relief & sentiers) et **Nuit** (les mêmes tuiles OSM assombries, pour garder les routes lisibles la nuit), plus un **curseur de luminosité** réglable.
+- **Carte vectorielle** plein écran (**MapLibre GL JS** + fond **Protomaps**, noms en français), avec **choix du fond de carte** dans l'onglet Options : **Clair**, **Contraste** (niveaux de gris) et **Nuit** (fond sombre dont les routes ont été éclaircies pour rester bien visibles), plus un **curseur de luminosité** qui n'agit que sur le fond, jamais sur le tracé. Sans clé Protomaps, ou si la clé est refusée en route, l'appli bascule d'elle-même sur les tuiles **OpenStreetMap** classiques.
 - **Recherche d'adresses et de lieux** (Nominatim / OpenStreetMap).
 - **Itinéraire** point à point : **un seul trajet**, équilibrant durée et distance, avec une option **« éviter les péages »**.
 - **Profil du véhicule** (hauteur, poids, largeur, longueur) utilisé de deux façons :
   - avec une **clé TomTom** ou **Openrouteservice**, l'itinéraire est **calculé pour votre gabarit** (les passages trop bas ou limités en tonnage sont évités par le moteur) ;
   - dans tous les cas, les **restrictions rencontrées** le long du trajet sont repérées à partir des données OpenStreetMap et annoncées à l'approche.
 - **Aires & services** : aires de camping-car, campings, parkings, restaurants, supermarchés, sites touristiques (Overpass). Les résultats s'effacent de la carte d'un bouton.
-- **Navigation guidée** : suivi GPS temps réel, carte orientée dans le sens de marche, recentrage, instructions virage par virage, **annonces vocales en français** (à 1 km, 500 m et 200 m, puis au moment de tourner), **compteur de vitesse** en bas à gauche, **alternative proposée si le trafic fait gagner au moins 10 min** (clé TomTom ; la proposition s'efface au bout de 45 s), bouton trafic accessible en roulant, verrouillage de l'écran, recalcul automatique en cas de sortie d'itinéraire.
+- **Navigation guidée** : suivi GPS temps réel, carte **orientée dans le sens de marche et inclinée** comme sur un GPS (véhicule placé aux deux tiers bas de l'écran pour voir loin devant), recentrage, instructions virage par virage, **annonces vocales en français** (à 1 km, 500 m et 200 m, puis au moment de tourner), **compteur de vitesse** en bas à gauche, **alternative proposée si le trafic fait gagner au moins 10 min** (clé TomTom ; la proposition s'efface au bout de 45 s), bouton trafic accessible en roulant, verrouillage de l'écran, recalcul automatique en cas de sortie d'itinéraire.
 - **Favoris** et **profil véhicule** sauvegardés localement (persistants d'une session à l'autre).
 - **Trafic TomTom en direct** (optionnel, nécessite votre propre clé — voir plus bas).
 
@@ -35,9 +35,13 @@ L'appli est une **PWA** : installable et utilisable hors-ligne, sans passer par 
 
 **Sur Android (Chrome)** : menu ⋮ → **Installer l'application** (ou la bannière proposée).
 
-**Mode hors-ligne** : un *service worker* met en cache la coquille de l'appli et les **tuiles de carte déjà consultées**. Les fonds de carte des zones que vous avez parcourues restent affichables sans réseau. En revanche, la recherche d'adresses, le calcul d'itinéraire, les POI et le trafic nécessitent une connexion.
+**Mode hors-ligne** : un *service worker* met en cache la coquille de l'appli, les **tuiles de carte déjà consultées** et les polices du fond Protomaps. Les zones que vous avez parcourues restent affichables sans réseau, noms de rues compris. En revanche, la recherche d'adresses, le calcul d'itinéraire, les POI et le trafic nécessitent une connexion.
 
 > ⚠️ Le mode hors-ligne et l'installation ne fonctionnent qu'en **HTTPS**, pas en ouverture locale `file://`.
+
+## 🗺️ Fond de carte (Protomaps)
+
+Le fond vectoriel vient de [Protomaps](https://protomaps.com/). Créez une clé gratuite sur [protomaps.com/dashboard](https://protomaps.com/dashboard), puis collez-la dans l'onglet **Options**, sous « Clé Protomaps ». Sans clé, l'appli fonctionne quand même avec les tuiles OpenStreetMap.
 
 ## 🔑 Moteurs d'itinéraire
 
@@ -81,13 +85,14 @@ Il n'est appelé que si au moins une dimension est renseignée : sans profil vé
 - Les services publics utilisés (Nominatim, OSRM, Overpass) sont gratuits mais soumis à des **politiques d'usage raisonnable** : ils peuvent être lents ou limités en volume, et ne conviennent pas à un usage intensif ou commercial.
 - Overpass est interrogé sur **trois instances successives** (`overpass-api.de`, `overpass.kumi.systems`, `overpass.private.coffee`) : si l'une sature, l'appli bascule automatiquement sur la suivante. La pastille grise « contrôle du gabarit indisponible » signifie que **les trois** ont échoué — donc *non vérifié*, et non *rien à signaler*.
 - Le trafic TomTom s'affiche en surcouche ; il n'influence le calcul d'itinéraire que via le paramètre `traffic=true` du moteur TomTom.
-- En navigation, déplacer la carte à la main remet momentanément le **nord en haut** : le bouton **⌖ Recentrer** rétablit l'orientation dans le sens de marche.
+- En navigation, déplacer ou zoomer la carte à la main suspend le suivi automatique (la carte garde son orientation) : le bouton **⌖ Recentrer** le rétablit.
+- MapLibre dessine la carte avec **WebGL**, présent sur tout téléphone récent. Sur un appareil qui en serait dépourvu, l'appli affiche un message au lieu de la carte.
 
 ## 🧰 Services & bibliothèques utilisés
 
-- [Leaflet](https://leafletjs.com/) — carte interactive
-- [OpenStreetMap](https://www.openstreetmap.org/) — données cartographiques
-- [OpenTopoMap](https://opentopomap.org/) — fond topographique (CC-BY-SA)
+- [MapLibre GL JS](https://maplibre.org/) — carte vectorielle (rotation, inclinaison)
+- [Protomaps](https://protomaps.com/) — tuiles vectorielles et styles du fond de carte
+- [OpenStreetMap](https://www.openstreetmap.org/) — données cartographiques, et tuiles du fond de secours
 - [Nominatim](https://nominatim.org/) — géocodage
 - [Openrouteservice](https://openrouteservice.org/) — itinéraire poids-lourd libre (repli)
 - [OSRM](http://project-osrm.org/) — calcul d'itinéraire (dernier recours)

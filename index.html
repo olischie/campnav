@@ -15,9 +15,9 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%233b82f6'/%3E%3Cpath d='M32 12c-9 0-16 7-16 16 0 12 16 24 16 24s16-12 16-24c0-9-7-16-16-16z' fill='%23fff'/%3E%3Ccircle cx='32' cy='28' r='6' fill='%233b82f6'/%3E%3C/svg%3E">
 <title>GPS Camping-Car</title>
 
-<!-- Leaflet 1.9.4 (cdnjs) -->
+<!-- MapLibre GL JS 5.24.0 (unpkg) -->
 <link rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"
+      href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css"
       crossorigin="anonymous" referrerpolicy="no-referrer">
 <style>
   :root{
@@ -28,10 +28,6 @@
     --sheet-collapsed:64px;
     --safe-b:env(safe-area-inset-bottom,0px);
     --safe-t:env(safe-area-inset-top,0px);
-    /* rotation de la carte en mode navigation (contre-rotation des marqueurs) */
-    --maprot:0deg;
-    --navd:100vmax;
-    --puck:68%;
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
   html,body{margin:0;height:100%;}
@@ -42,21 +38,23 @@
   }
   .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
 
-  #map{
-    position:absolute; inset:0; z-index:0; background:#0c0f16;
-    transform-origin:50% 50%; transition:transform .35s ease-out;
+  /* La rotation (carte orientée dans le sens de marche) et l'inclinaison sont
+     gérées par MapLibre lui-même : plus besoin d'agrandir ni de tourner le
+     conteneur en CSS. */
+  #map{ position:absolute; inset:0; z-index:0; background:#0c0f16; }
+  /* Mention des sources : au-dessus de la poignée du panneau, masquée en navigation */
+  .maplibregl-ctrl-bottom-right{ bottom:calc(var(--sheet-collapsed) + var(--safe-b)); }
+  body:has(#dash.show) .maplibregl-ctrl-bottom-right{ bottom:calc(var(--sheet-collapsed) + 92px + var(--safe-b)); }
+  body.nav .maplibregl-ctrl-bottom-right{ display:none; }
+  .maplibregl-ctrl-attrib{ font-size:10px; }
+  /* Fenêtres d'information (services, restrictions) : texte sombre sur fond blanc,
+     quel que soit le thème de l'interface. */
+  .maplibregl-popup-content{
+    color:#1a2233; font-size:13px; line-height:1.45; border-radius:10px;
+    padding:10px 26px 10px 12px; box-shadow:0 6px 20px rgba(0,0,0,.35);
   }
-  /* En navigation, la carte est un carré plus grand que l'écran, centré sur le
-     véhicule : la rotation autour de son centre ne découvre jamais de coin vide. */
-  body.nav #map{
-    inset:auto; left:50%; top:var(--puck);
-    width:var(--navd); height:var(--navd);
-    margin-left:calc(var(--navd) / -2);
-    margin-top:calc(var(--navd) / -2);
-  }
-  body.nav .leaflet-control-attribution{display:none;}
-  .leaflet-control-zoom{display:none;}
-  .leaflet-bar,.leaflet-control-attribution{font-size:10px;}
+  .maplibregl-popup-close-button{ font-size:20px; width:26px; height:26px; color:#5f6b80; }
+  .maplibregl-popup-content a{ color:var(--blue); }
 
   /* ---------- Top search ---------- */
   #top{
@@ -203,7 +201,6 @@
   .result .txt small{color:var(--muted);display:block;margin-top:2px;font-size:12px;}
   /* Lien vers le site de l'aire / du camping : cliquable sans déclencher la ligne */
   .result .txt small a{color:var(--blue); text-decoration:none;}
-  .leaflet-popup-content a{color:var(--blue);}
   .result .go{
     background:var(--panel-2);border:1px solid var(--line);color:var(--ink);
     border-radius:10px;padding:8px 10px;font-size:12px;flex:none;
@@ -233,28 +230,28 @@
   }
   @keyframes sp{to{transform:rotate(360deg);}}
 
-  /* Custom markers — contre-rotation pour rester droits quand la carte tourne */
+  /* Marqueurs. MapLibre les garde droits à l'écran quand la carte tourne :
+     aucune contre-rotation à gérer. La pointe de l'épingle est en bas. */
   .pin{
     width:26px;height:26px;border-radius:50% 50% 50% 2px;
-    transform:rotate(calc(45deg + var(--maprot)));
+    transform:rotate(-45deg);
     border:2px solid #0b0e15; box-shadow:0 3px 8px rgba(0,0,0,.5);
     display:flex;align-items:center;justify-content:center;
   }
-  .pin span{transform:rotate(calc(-45deg - var(--maprot)));font-size:12px;line-height:1;}
+  .pin span{transform:rotate(45deg);font-size:12px;line-height:1;color:#fff;font-weight:700;}
   .poi{
     width:30px;height:30px;border-radius:50%;border:2px solid #0b0e15;
-    transform:rotate(var(--maprot));
     display:flex;align-items:center;justify-content:center;font-size:15px;
-    box-shadow:0 3px 8px rgba(0,0,0,.45);
+    box-shadow:0 3px 8px rgba(0,0,0,.45); cursor:pointer;
   }
   .warnpin{
     width:28px;height:28px;background:var(--red);color:#fff;border:2px solid #0b0e15;
-    transform:rotate(var(--maprot));
     border-radius:6px;display:flex;align-items:center;justify-content:center;
-    font-weight:800;font-size:13px;box-shadow:0 3px 8px rgba(0,0,0,.5);
+    font-weight:800;font-size:13px;box-shadow:0 3px 8px rgba(0,0,0,.5); cursor:pointer;
   }
+  .maplibregl-marker.navmk{ z-index:5; }
   @media (prefers-reduced-motion:reduce){
-    #sheet{transition:none;} .spin{animation:none;} #map{transition:none;}
+    #sheet{transition:none;} .spin{animation:none;}
   }
 
   /* ---------- Navigation mode ---------- */
@@ -363,12 +360,8 @@
   body.light .suggest, body.light #navBottom{ box-shadow:0 6px 20px rgba(30,45,80,.14); }
   body.light #toast{ background:#ffffffee; color:#1a2233; }
 
-  /* Filtre appliqué aux seules tuiles : le tracé, les marqueurs et l'interface
-     vivent dans d'autres calques et gardent leurs couleurs. Les trois valeurs
-     sont pilotées depuis le JS (mode nuit + curseur de luminosité). */
-  .leaflet-tile-pane{
-    filter:brightness(var(--tb,1)) contrast(var(--tc,1)) saturate(var(--ts,1));
-  }
+  /* La luminosité du fond est réglée dans la carte elle-même (voile posé entre
+     le fond et le tracé), pas par un filtre CSS qui assombrirait aussi l'itinéraire. */
   body:not(.light) #map{ background:#0a0d14; }
 
   /* Curseur de luminosité */
@@ -432,11 +425,11 @@
   .basegrid .chip.on{ background:var(--blue); border-color:var(--blue); }
   .basegrid .chip.on b, .basegrid .chip.on small{ color:#fff; }
   /* Bouton dans les popups de service */
-  .leaflet-popup-content .popgo{
+  .maplibregl-popup-content .popgo{
     margin-top:8px; width:100%; border:0; border-radius:8px; padding:9px 10px;
     background:var(--blue); color:#fff; font-size:13px; font-weight:600;
   }
-  .leaflet-popup-content .popgo:active{ background:var(--blue-d); }
+  .maplibregl-popup-content .popgo:active{ background:var(--blue-d); }
 
   /* Bouton recentrage (mode navigation) */
   #recenter{
@@ -654,7 +647,7 @@
       </div>
       <p>Assombrissez la carte de nuit ou éclaircissez-la en plein soleil. N'affecte que le fond : l'itinéraire et les repères gardent leur éclat.</p>
 
-      <p>Le fond de carte est fourni par <b>Protomaps</b> (tuiles vectorielles). Une clé gratuite est nécessaire pour l'afficher — inscription sur <a href="https://protomaps.com/dashboard" target="_blank" rel="noopener">protomaps.com/dashboard</a>.</p>
+      <p>Le fond de carte est fourni par <b>Protomaps</b> (tuiles vectorielles). Une clé gratuite est nécessaire — inscription sur <a href="https://protomaps.com/dashboard" target="_blank" rel="noopener">protomaps.com/dashboard</a>. Sans clé, ou si elle est refusée en cours de route, l'appli affiche à la place les tuiles OpenStreetMap classiques.</p>
       <input class="inp" id="pmInput" type="password" placeholder="Clé Protomaps"
              autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
       <p class="state" id="pmState"></p>
@@ -687,28 +680,32 @@
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"
         crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-<!-- protomaps-leaflet : rendu des tuiles vectorielles Protomaps sur une carte Leaflet -->
-<script src="https://unpkg.com/protomaps-leaflet/dist/protomaps-leaflet.js"
+<!-- Styles Protomaps pour MapLibre (couches du fond vectoriel, noms en français) -->
+<script src="https://unpkg.com/@protomaps/basemaps@5/dist/basemaps.js"
         crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script>
-// Si Leaflet ou protomaps-leaflet n'a pas pu être chargé (réseau, blocage, CDN
-// indisponible), on le dit clairement : sans ce garde-fou, tout le script qui
-// suit échoue et l'écran reste vide.
-if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
+// Si MapLibre n'a pas pu être chargé (réseau, blocage, CDN indisponible), on le
+// dit clairement : sans ce garde-fou, tout le script qui suit échoue et l'écran
+// reste vide. Sans WebGL, MapLibre ne peut rien dessiner non plus.
+(function(){
+  var why = null;
+  if (typeof maplibregl === 'undefined') why = 'La bibliothèque MapLibre est inaccessible. Vérifiez votre connexion, puis rechargez la page.';
+  else if (!(function(){ try{ var c=document.createElement('canvas'); return !!(c.getContext('webgl2')||c.getContext('webgl')); }catch(e){ return false; } })()) why ='Ce navigateur ne prend pas en charge WebGL, indispensable à l\'affichage de la carte.';
+  if (!why) return;
+  window.__ccNoMap = true;
   document.getElementById('map').innerHTML =
     '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;' +
     'padding:24px;text-align:center;font:15px/1.6 -apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;' +
     'color:#1a2233;background:#eef1f6">' +
-    '<div><b>La carte n\'a pas pu être chargée.</b><br>' +
-    'Leaflet ou protomaps-leaflet est inaccessible. Vérifiez votre connexion, puis rechargez la page.</div></div>';
-}
+    '<div><b>La carte n\'a pas pu être chargée.</b><br>' + why + '</div></div>';
+})();
 </script>
 <script>
 (function(){
   "use strict";
-  if (typeof L === 'undefined' || typeof protomapsL === 'undefined') return;   // rien à initialiser sans Leaflet / protomaps-leaflet
+  if (window.__ccNoMap) return;   // rien à initialiser sans MapLibre
 
   // Instances Overpass. Les serveurs publics renvoient un 429 / 504 (corps HTML,
   // pas du JSON) quand ils sont saturés, ou mettent très longtemps à répondre.
@@ -795,72 +792,256 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
       following=true, navLast=null, navIdx=1;
 
   // ---------- Map ----------
-  // fadeAnimation:false — le rendu des tuiles vectorielles Protomaps est asynchrone
-  // (fetch + décodage + peinture). Le fondu par défaut de Leaflet peut invalider une
-  // tuile encore en cours de rendu (ex. recentrage sur la géolocalisation au démarrage)
-  // avant qu'elle n'atteigne jamais son opacité finale, la laissant invisible en permanence.
-  var map = L.map('map', { zoomControl:false, attributionControl:true, fadeAnimation:false })
-             .setView([50.85, 4.35], 12); // Bruxelles par défaut
-
   // Clé Protomaps (fond de carte), saisie dans l'onglet Options. Lue tout de
-  // suite, avant le premier rendu : sans elle, aucune tuile ne peut s'afficher.
+  // suite, avant le premier rendu.
   var pmKey = '';
   try{ pmKey = localStorage.getItem('cc_pmkey') || ''; }catch(e){}
+  // Passe à true si Protomaps refuse la clé ou le quota en cours de route : on
+  // bascule alors sur OpenStreetMap plutôt que de laisser une carte vide.
+  var pmBroken = false;
   function pmTilesUrl(){
     return 'https://api.protomaps.com/tiles/v4/{z}/{x}/{y}.mvt?key='+encodeURIComponent(pmKey);
   }
+  var GLYPHS = 'https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf';
+  var SPRITES = 'https://protomaps.github.io/basemaps-assets/sprites/v4/';
+  var PM_ATTR = '<a href="https://protomaps.com" target="_blank" rel="noopener">Protomaps</a> &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>';
+  var OSM_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>';
+
+  // Palette « Nuit » : la palette sombre de Protomaps, mais avec des routes
+  // nettement plus claires. Les routes d'origine (#3d3d3d sur fond #1f1f1f) se
+  // devinent à peine de nuit ; ici elles ressortent sans éblouir.
+  var NIGHT_ROADS = {
+    earth:'#1a1d23', background:'#2a2e36', water:'#26324a', buildings:'#121418',
+    other:'#4a515c', minor_service:'#4a515c', minor_a:'#5f6773', minor_b:'#545b66',
+    link:'#7b8494', major:'#8a93a3', highway:'#a9b2c2',
+    minor_service_casing:'#101216', minor_casing:'#101216', link_casing:'#101216',
+    major_casing_early:'#101216', major_casing_late:'#101216',
+    highway_casing_early:'#101216', highway_casing_late:'#101216',
+    bridges_other:'#4a515c', bridges_minor:'#5f6773', bridges_link:'#7b8494',
+    bridges_major:'#8a93a3', bridges_highway:'#a9b2c2',
+    tunnel_other:'#3a3f48', tunnel_minor:'#3f454f', tunnel_link:'#555c68',
+    tunnel_major:'#5d6572', tunnel_highway:'#6f7887',
+    roads_label_minor:'#a3aab6', roads_label_minor_halo:'#15171c',
+    roads_label_major:'#c3c9d3', roads_label_major_halo:'#15171c',
+    city_label:'#d0d5dd', city_label_halo:'#15171c',
+    subplace_label:'#9aa1ad', subplace_label_halo:'#15171c',
+    address_label:'#8d94a0', address_label_halo:'#15171c'
+  };
+  function flavorOf(name){
+    if(name==='night'){
+      var f={}, base=basemaps.namedFlavor('dark'), k;
+      for(k in base) f[k]=base[k];
+      for(k in NIGHT_ROADS) f[k]=NIGHT_ROADS[k];
+      return f;
+    }
+    return basemaps.namedFlavor(name);
+  }
 
   // Catalogue de fonds de carte, choisis dans l'onglet Options. Une seule
-  // source vectorielle (api.protomaps.com) : chaque entrée n'est qu'une
-  // palette (« flavor », au sens protomaps-leaflet) différente, pas des tuiles
-  // distinctes à télécharger.
+  // source vectorielle (api.protomaps.com) : chaque entrée n'est qu'une palette
+  // différente. `osm` : rendu de secours sur les tuiles OpenStreetMap, quand la
+  // clé Protomaps manque ou est refusée.
   var BASEMAPS = {
-    light: { name:'Clair', sub:'Fond vectoriel Protomaps', dark:false, flavor:'light',
-      attr:'&copy; <a href="https://protomaps.com" target="_blank" rel="noopener">Protomaps</a> &copy; OpenStreetMap' },
-    gray:  { name:'Contraste', sub:'Niveaux de gris', dark:false, flavor:'grayscale',
-      attr:'&copy; <a href="https://protomaps.com" target="_blank" rel="noopener">Protomaps</a> &copy; OpenStreetMap' },
-    dark:  { name:'Nuit', sub:'Fond vectoriel sombre', dark:true, flavor:'dark',
-      attr:'&copy; <a href="https://protomaps.com" target="_blank" rel="noopener">Protomaps</a> &copy; OpenStreetMap' }
+    light: { name:'Clair', sub:'Fond vectoriel Protomaps', dark:false, flavor:'light', sprite:'light',
+             osm:{} },
+    gray:  { name:'Contraste', sub:'Niveaux de gris', dark:false, flavor:'grayscale', sprite:'grayscale',
+             osm:{ 'raster-saturation':-1, 'raster-contrast':0.15 } },
+    dark:  { name:'Nuit', sub:'Fond sombre, routes éclaircies', dark:true, flavor:'night', sprite:'dark',
+             osm:{ 'raster-brightness-max':0.6, 'raster-saturation':-0.4, 'raster-contrast':0.2 } }
   };
   var BASE_ORDER = ['light','gray','dark'];
-  var currentBase = 'light', prevLightBase = 'light', tileLayer=null;
+  var currentBase = 'light', prevLightBase = 'light';
+  // Fond mémorisé, lu avant de créer la carte : elle démarre directement dessus
+  // au lieu de charger le fond clair puis de changer aussitôt.
+  try{
+    var savedBase = localStorage.getItem('cc_base');
+    if(savedBase && BASEMAPS[savedBase]){
+      currentBase = savedBase;
+      if(!BASEMAPS[savedBase].dark) prevLightBase = savedBase;
+    }
+  }catch(e){}
+
+  function useVector(){ return !!pmKey && !pmBroken && typeof basemaps!=='undefined'; }
+
+  function buildStyle(){
+    var b = BASEMAPS[currentBase] || BASEMAPS.light;
+    if(useVector()){
+      // lang:'fr' — les tuiles Protomaps embarquent les noms localisés ; sans
+      // cette option on retomberait sur l'anglais (« Brussels », « Antwerp »).
+      return {
+        version:8, glyphs:GLYPHS, sprite:SPRITES+b.sprite,
+        sources:{ protomaps:{ type:'vector', tiles:[pmTilesUrl()], maxzoom:15, attribution:PM_ATTR } },
+        layers: basemaps.layers('protomaps', flavorOf(b.flavor), { lang:'fr' })
+      };
+    }
+    return {
+      version:8,
+      sources:{ osm:{ type:'raster', tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+                      tileSize:256, maxzoom:19, attribution:OSM_ATTR } },
+      layers:[ { id:'osm', type:'raster', source:'osm', paint:b.osm } ]
+    };
+  }
+
+  var map = new maplibregl.Map({
+    container:'map',
+    style: buildStyle(),
+    center:[4.35, 50.85], zoom:12,          // Bruxelles par défaut
+    attributionControl:{ compact:true },
+    // L'orientation et l'inclinaison sont pilotées par l'appli (sens de marche en
+    // navigation, nord en haut sinon) : on ne laisse pas un geste à deux doigts
+    // faire tourner la carte par mégarde.
+    dragRotate:false, pitchWithRotate:false, touchPitch:false,
+    maxPitch:60
+  });
+  map.touchZoomRotate.disableRotation();
+  map.keyboard.disableRotation();
+
+  // ---------- Calques propres à l'appli ----------
+  // Ils vivent dans le style de la carte : chaque changement de fond (setStyle)
+  // les efface, on les recrée donc à chaque « style.load » à partir de l'état.
+  var EMPTY = { type:'FeatureCollection', features:[] };
+  var WORLD = { type:'Feature', properties:{}, geometry:{ type:'Polygon',
+                coordinates:[[[-180,-85],[180,-85],[180,85],[-180,85],[-180,-85]]] } };
+  var routeData = EMPTY, areaData = EMPTY;
+  var styleReady = false;
+
+  function addCustomLayers(){
+    styleReady = true;
+    // Voile de luminosité : entre le fond et tout le reste, il assombrit ou
+    // éclaircit la carte sans toucher au tracé ni aux repères.
+    if(!map.getSource('cc-world')) map.addSource('cc-world', { type:'geojson', data:WORLD });
+    if(!map.getLayer('cc-dim')) map.addLayer({ id:'cc-dim', type:'fill', source:'cc-world',
+      paint:{ 'fill-color':'#000000', 'fill-opacity':0 } });
+    if(ttActive) addTrafficLayer();
+    if(!map.getSource('cc-area')) map.addSource('cc-area', { type:'geojson', data:areaData });
+    if(!map.getLayer('cc-area')) map.addLayer({ id:'cc-area', type:'line', source:'cc-area',
+      paint:{ 'line-color':'#2563eb', 'line-width':2, 'line-dasharray':[3,3] } });
+    if(!map.getSource('cc-route')) map.addSource('cc-route', { type:'geojson', data:routeData });
+    // Liseré sombre + trait bleu vif : lisible sur fond clair comme sur fond nuit.
+    if(!map.getLayer('cc-route-casing')) map.addLayer({ id:'cc-route-casing', type:'line', source:'cc-route',
+      layout:{ 'line-join':'round', 'line-cap':'round' },
+      paint:{ 'line-color':'#0b1220', 'line-width':11, 'line-opacity':0.85 } });
+    if(!map.getLayer('cc-route-line')) map.addLayer({ id:'cc-route-line', type:'line', source:'cc-route',
+      layout:{ 'line-join':'round', 'line-cap':'round' },
+      paint:{ 'line-color':'#1d6fff', 'line-width':6 } });
+    applyTileFilter();
+  }
+  map.on('style.load', addCustomLayers);
+
+  // Tuiles refusées : Protomaps (clé invalide, quota) → repli OpenStreetMap ;
+  // trafic TomTom → on coupe la couche au bout de quelques échecs.
+  map.on('error', function(e){
+    var st = e && e.error && e.error.status;
+    if(e && e.sourceId==='protomaps' && (st===401 || st===403 || st===429) && !pmBroken){
+      pmBroken = true;
+      toast(st===429 ? 'Quota Protomaps atteint — fond OpenStreetMap affiché à la place.'
+                     : 'Clé Protomaps refusée — fond OpenStreetMap affiché à la place.', 5000);
+      applyTiles();
+      refreshKeyStates();
+    } else if(e && e.sourceId==='cc-traffic'){
+      onTrafficTileError();
+    }
+  });
+
+  // Sans clé Protomaps, on le signale une fois par session.
+  var osmNoticeShown = false;
+  function osmNotice(){
+    if(pmKey || osmNoticeShown) return;
+    osmNoticeShown = true;
+    // toast() est défini plus bas (fonction hissée) mais toastEl n'est affecté
+    // qu'ensuite : on diffère l'appel après ce tour de boucle.
+    setTimeout(function(){ toast('Fond OpenStreetMap affiché. Ajoutez une clé Protomaps gratuite (onglet Options) pour le fond vectoriel.', 6000); }, 300);
+  }
+  osmNotice();
 
   function applyTiles(){
     var b = BASEMAPS[currentBase] || BASEMAPS.light;
-    if(tileLayer){ map.removeLayer(tileLayer); tileLayer=null; }
-    // Chrome sombre + couleur de barre système selon le fond choisi, même sans clé.
+    // Interface sombre + couleur de barre système selon le fond choisi.
     document.body.classList.toggle('light', !b.dark);
     var meta = document.getElementById('themeColorMeta');
     if(meta) meta.setAttribute('content', b.dark ? '#12161f' : '#eef1f6');
-    if(!pmKey){
-      // toast() n'est défini que plus bas dans ce script (mais hissé) ; toastEl
-      // n'est affecté qu'ensuite, donc on diffère l'appel après ce tour de boucle.
-      setTimeout(function(){ toast('Ajoutez une clé Protomaps gratuite dans l\'onglet Options pour afficher le fond de carte.', 6000); }, 300);
-      applyTileFilter();
-      return;
-    }
-    // lang:'fr' — les tuiles Protomaps embarquent les noms localisés ; sans cette
-    // option la bibliothèque retombe sur l'anglais (« Brussels », « Antwerp »).
-    tileLayer = protomapsL.leafletLayer({ url: pmTilesUrl(), flavor: b.flavor, lang: 'fr', attribution: b.attr }).addTo(map);
-    tileLayer.bringToBack();
-    applyTileFilter();
+    osmNotice();
+    styleReady = false;
+    map.setStyle(buildStyle(), { diff:false });
   }
 
-  // Luminosité réglable (1 = thème d'origine) : le curseur agit uniformément,
-  // le thème Protomaps choisi (clair/contraste/nuit) porte déjà son propre contraste.
+  // Luminosité réglable (1 = thème d'origine) par un voile noir (plus sombre) ou
+  // blanc (plus clair) posé sur le fond, sous le tracé et les repères.
   var mapBright = 1;
   function applyTileFilter(){
     var b = mapBright;
     if(b < 0.15) b = 0.15;
-    var st = document.body.style;
-    st.setProperty('--tb', b.toFixed(3));
-    st.setProperty('--tc', '1');
-    st.setProperty('--ts', '1');
+    if(!styleReady || !map.getLayer('cc-dim')) return;
+    var lighter = b > 1;
+    map.setPaintProperty('cc-dim', 'fill-color', lighter ? '#ffffff' : '#000000');
+    map.setPaintProperty('cc-dim', 'fill-opacity', lighter ? Math.min(0.5, b-1) : (1-b));
   }
-  document.body.classList.add('light'); // fond clair par défaut
-  applyTiles();
-  poiLayer = L.layerGroup().addTo(map);
-  warnLayer = L.layerGroup().addTo(map);
+  (function(){   // interface claire ou sombre selon le fond de départ
+    var dk = BASEMAPS[currentBase].dark;
+    document.body.classList.toggle('light', !dk);
+    var meta = document.getElementById('themeColorMeta');
+    if(meta) meta.setAttribute('content', dk ? '#12161f' : '#eef1f6');
+  })();
+
+  // Groupe de marqueurs DOM, effaçable d'un coup (équivalent du layerGroup Leaflet).
+  function markerGroup(){
+    var list=[];
+    return {
+      add:function(m){ list.push(m); return m; },
+      clearLayers:function(){ list.forEach(function(m){ m.remove(); }); list=[]; }
+    };
+  }
+  poiLayer = markerGroup();
+  warnLayer = markerGroup();
+
+  // ---------- Outils de carte ----------
+  function toLine(coords){   // [[lat,lng]] → GeoJSON [lng,lat]
+    return { type:'Feature', properties:{}, geometry:{ type:'LineString',
+             coordinates: coords.map(function(c){ return [c[1], c[0]]; }) } };
+  }
+  function setRouteData(coords){
+    routeData = (coords && coords.length>1) ? toLine(coords) : EMPTY;
+    var s = styleReady && map.getSource('cc-route');
+    if(s) s.setData(routeData);
+  }
+  function setAreaData(bb){
+    areaData = bb ? toLine([[bb[0],bb[1]],[bb[0],bb[3]],[bb[2],bb[3]],[bb[2],bb[1]],[bb[0],bb[1]]]) : EMPTY;
+    var s = styleReady && map.getSource('cc-area');
+    if(s) s.setData(areaData);
+  }
+  function boundsOf(coords){
+    var b = new maplibregl.LngLatBounds();
+    coords.forEach(function(c){ b.extend([c[1], c[0]]); });
+    return b;
+  }
+  // Marges : champs de recherche en haut, boutons à droite, tableau de bord en bas.
+  function fitPad(){
+    var h = map.getContainer().clientHeight, w = map.getContainer().clientWidth;
+    var top = Math.min(140, h*0.25), bottom = Math.min(130, h*0.22);
+    return { top:top, bottom:bottom, left:Math.min(40, w*0.1), right:Math.min(70, w*0.15) };
+  }
+  function fitCoords(coords){
+    if(!coords || !coords.length) return;
+    map.fitBounds(boundsOf(coords), { padding:fitPad(), maxZoom:16, duration:700 });
+  }
+  function setView(lat, lng, z){
+    map.easeTo({ center:[lng, lat], zoom:z, duration:600 });
+  }
+  // Distance en mètres entre deux points {lat,lng} ou [lat,lng] (haversine).
+  function distM(a, b){
+    var la1 = a.lat!=null ? a.lat : a[0], ln1 = a.lng!=null ? a.lng : a[1];
+    var la2 = b.lat!=null ? b.lat : b[0], ln2 = b.lng!=null ? b.lng : b[1];
+    var r = Math.PI/180, dLa=(la2-la1)*r, dLn=(ln2-ln1)*r;
+    var s = Math.sin(dLa/2)*Math.sin(dLa/2) + Math.cos(la1*r)*Math.cos(la2*r)*Math.sin(dLn/2)*Math.sin(dLn/2);
+    return 2*6371000*Math.asin(Math.min(1, Math.sqrt(s)));
+  }
+  // Cap (0 = nord, sens horaire) du point a vers le point b.
+  function bearingTo(a, b){
+    var r = Math.PI/180, la1=a.lat*r, la2=b.lat*r, dLn=(b.lng-a.lng)*r;
+    var y = Math.sin(dLn)*Math.cos(la2);
+    var x = Math.cos(la1)*Math.sin(la2) - Math.sin(la1)*Math.cos(la2)*Math.cos(dLn);
+    return (Math.atan2(y, x)/r + 360) % 360;
+  }
 
   // ---------- Helpers ----------
   var $ = function(s){ return document.querySelector(s); };
@@ -881,19 +1062,37 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
   function fmtDur(s){ var h=Math.floor(s/3600), m=Math.round((s%3600)/60); return h?(h+' h '+(m<10?'0':'')+m):(m+' min'); }
   function num(v){ return (v!=null && !isNaN(v)) ? v : null; }
 
-  function pinIcon(kind){
+  // Marqueurs DOM. MapLibre écrit sa propre transform sur l'élément du marqueur :
+  // le dessin (épingle tournée de 45°…) va donc dans un élément enfant.
+  function markerEl(html, cls){
+    var w = document.createElement('div');
+    if(cls) w.className = cls;
+    w.innerHTML = html;
+    return w;
+  }
+  function pinMarker(kind, lat, lng){
     var c = kind==='from' ? '#22c55e' : '#ef4444';
     var lab = kind==='from' ? 'D' : 'A';
-    return L.divIcon({ className:'', iconSize:[26,26], iconAnchor:[6,26],
-      html:'<div class="pin" style="background:'+c+'"><span>'+lab+'</span></div>' });
+    // Pointe de l'épingle à 18 px sous le centre du carré tourné.
+    return new maplibregl.Marker({
+      element: markerEl('<div class="pin" style="background:'+c+'"><span>'+lab+'</span></div>'),
+      anchor:'center', offset:[0,-18]
+    }).setLngLat([lng, lat]).addTo(map);
   }
-  function poiIcon(emoji,color){
-    return L.divIcon({ className:'', iconSize:[30,30], iconAnchor:[15,15],
-      html:'<div class="poi" style="background:'+color+'">'+emoji+'</div>' });
+  function poiMarker(emoji, color, lat, lng){
+    return new maplibregl.Marker({
+      element: markerEl('<div class="poi" style="background:'+color+'">'+emoji+'</div>'),
+      anchor:'center'
+    }).setLngLat([lng, lat]);
   }
-  function warnIcon(){
-    return L.divIcon({ className:'', iconSize:[28,28], iconAnchor:[14,14],
-      html:'<div class="warnpin">!</div>' });
+  function warnMarker(lat, lng){
+    return new maplibregl.Marker({ element: markerEl('<div class="warnpin">!</div>'), anchor:'center' })
+      .setLngLat([lng, lat]);
+  }
+  function popupOf(content){
+    var p = new maplibregl.Popup({ offset:18, maxWidth:'260px', closeButton:true, focusAfterOpen:false });
+    if(typeof content==='string') p.setHTML(content); else p.setDOMContent(content);
+    return p;
   }
 
   // ---------- Géométrie rapide (plan local équirectangulaire, en mètres) ----------
@@ -1035,19 +1234,18 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
   // ---------- Points & routing ----------
   function setPoint(which, lat, lng, label){
     pts[which] = { lat:lat, lng:lng, label:label||'' };
-    if(markers[which]) map.removeLayer(markers[which]);
-    markers[which] = L.marker([lat,lng], { icon:pinIcon(which) }).addTo(map);
+    if(markers[which]) markers[which].remove();
+    markers[which] = pinMarker(which, lat, lng);
     if(pts.from && pts.to){ fitBoth(); calcRoute(); }
-    else map.setView([lat,lng], Math.max(map.getZoom(),13));
+    else setView(lat, lng, Math.max(map.getZoom(),13));
   }
   function clearPoint(which){
     pts[which]=null;
-    if(markers[which]){ map.removeLayer(markers[which]); markers[which]=null; }
+    if(markers[which]){ markers[which].remove(); markers[which]=null; }
     clearRoute();
   }
   function fitBoth(){
-    var b = L.latLngBounds([[pts.from.lat,pts.from.lng],[pts.to.lat,pts.to.lng]]);
-    map.fitBounds(b, { padding:[60,60] });
+    fitCoords([[pts.from.lat,pts.from.lng],[pts.to.lat,pts.to.lng]]);
   }
 
   // ---------- Moteur d'itinéraire : OSRM par défaut, TomTom si clé présente ----------
@@ -1300,24 +1498,23 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     }).catch(function(){ hideToast(); toast('Service d\'itinéraire indisponible. Réessayez dans un instant.'); });
   }
 
+  // `routeLayer` indique seulement qu'un tracé est affiché : le dessin lui-même
+  // est une source GeoJSON de la carte (calques cc-route-*).
   function clearRouteLayers(){
-    if(routeLayer){ map.removeLayer(routeLayer); routeLayer=null; }
+    routeLayer=null;
+    setRouteData(null);
   }
 
   function drawRoute(coords){
-    // Liseré sombre + trait bleu vif : lisible sur fond clair coloré comme sur fond nuit.
-    return L.layerGroup([
-      L.polyline(coords,{color:'#0b1220',weight:11,opacity:.85,lineJoin:'round',lineCap:'round'}),
-      L.polyline(coords,{color:'#1d6fff',weight:6,opacity:1,lineJoin:'round',lineCap:'round'})
-    ]).addTo(map);
+    setRouteData(coords);
+    return true;
   }
 
   // En navigation, efface la portion déjà parcourue : ne reste affiché que ce
   // qu'il reste à parcourir, avec un bord net sur la position actuelle.
   function trimRoute(here, idx){
     if(!routeLayer || !routeCoords) return;
-    var remaining = [[here.lat, here.lng]].concat(routeCoords.slice(idx));
-    routeLayer.eachLayer(function(ly){ ly.setLatLngs(remaining); });
+    setRouteData([[here.lat, here.lng]].concat(routeCoords.slice(idx)));
   }
 
   // Trace toutes les alternatives (gris) puis la sélectionnée (bleu, au-dessus)
@@ -1329,7 +1526,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     routeXY = buildXY(routeCoords);
     navIdx = 1;
     routeLayer = drawRoute(rt.coords);
-    if(fit) map.fitBounds(L.latLngBounds(rt.coords),{padding:[50,50]});
+    if(fit) fitCoords(rt.coords);
     showDash(rt.distance, rt.duration);
     renderRouteInfo();
     checkHeights(rt.coords);
@@ -1431,15 +1628,35 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
   };
 
   // Polyligne simplifiée servant de « corridor » à Overpass et d'accroche aux alertes.
+  // Simplification de Douglas-Peucker sur le plan local en mètres (tolérance
+  // ~6 m, l'équivalent des 2 px au zoom 15 de l'ancienne version). Itérative :
+  // pas de récursion profonde sur un trajet de plusieurs milliers de points.
+  function simplifyCoords(coords, tol){
+    var n = coords.length;
+    if(n < 3) return coords.slice();
+    var p = buildXY(coords).p, keep = new Uint8Array(n), t2 = tol*tol;
+    keep[0] = keep[n-1] = 1;
+    var stack = [[0, n-1]];
+    while(stack.length){
+      var s = stack.pop(), a = s[0], b = s[1], maxD = -1, idx = -1;
+      for(var i=a+1;i<b;i++){
+        var r = segNear(p[i][0],p[i][1], p[a][0],p[a][1], p[b][0],p[b][1]);
+        if(r[2] > maxD){ maxD = r[2]; idx = i; }
+      }
+      if(idx > 0 && maxD > t2){ keep[idx] = 1; stack.push([a, idx], [idx, b]); }
+    }
+    var out = [];
+    for(var j=0;j<n;j++) if(keep[j]) out.push(coords[j]);
+    return out;
+  }
   function corridor(coords){
-    var pxs = coords.map(function(c){ return map.project(L.latLng(c[0],c[1]), 15); });
-    var simp = (L.LineUtil && L.LineUtil.simplify) ? L.LineUtil.simplify(pxs, 2) : pxs;
+    var simp = simplifyCoords(coords, 6);
     var step = Math.ceil(simp.length/300) || 1;
     var out=[], i;
-    for(i=0;i<simp.length;i+=step) out.push(map.unproject(simp[i],15));
-    var last=map.unproject(simp[simp.length-1],15);
-    if(!out.length || out[out.length-1].lat!==last.lat) out.push(last);
-    return out.map(function(p){ return [p.lat, p.lng]; });
+    for(i=0;i<simp.length;i+=step) out.push(simp[i]);
+    var last=simp[simp.length-1];
+    if(!out.length || out[out.length-1]!==last) out.push(last);
+    return out.map(function(p){ return [p[0], p[1]]; });
   }
 
   var warnAbort=null, warnKey='';
@@ -1529,10 +1746,10 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
       return;
     }
     low.forEach(function(o){
-      L.marker([o.lat,o.lng],{icon:warnIcon()})
-        .bindPopup('<b>⚠ '+esc(o.name)+'</b><br>'+o.kind+' max : '+o.lim.toFixed(2)+' '+o.unit+
-                   '<br>Votre véhicule : '+o.mine.toFixed(2)+' '+o.unit)
-        .addTo(warnLayer);
+      warnLayer.add(warnMarker(o.lat, o.lng)
+        .setPopup(popupOf('<b>⚠ '+esc(o.name)+'</b><br>'+o.kind+' max : '+o.lim.toFixed(2)+' '+o.unit+
+                          '<br>Votre véhicule : '+o.mine.toFixed(2)+' '+o.unit))
+        .addTo(map));
     });
     var kinds={};
     low.forEach(function(o){ kinds[o.kind]=true; });
@@ -1612,6 +1829,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
   function clearPois(){
     if(poiAbort){ poiAbort.abort(); poiAbort=null; }
     poiLayer.clearLayers();
+    setAreaData(null);
     $('#poiList').innerHTML='';
     $('#clearPoi').style.display='none';
   }
@@ -1654,9 +1872,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
   // Matérialise la zone réellement interrogée : sans ce cadre, l'absence de
   // résultats sur les bords de la carte passerait pour un trou dans les données.
   function showSearchArea(bb){
-    L.rectangle([[bb[0],bb[1]],[bb[2],bb[3]]],
-      { color:'#2563eb', weight:2, dashArray:'6 6', fill:false, interactive:false })
-      .addTo(poiLayer);
+    setAreaData(bb);
     $('#clearPoi').style.display='block'; // sinon le cadre resterait sans moyen de l'effacer
   }
 
@@ -1865,7 +2081,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     }
     $('#clearPoi').style.display='block';
     var center=map.getCenter();
-    items.forEach(function(it){ it.d=map.distance(center,[it.lat,it.lng]); });
+    items.forEach(function(it){ it.d=distM(center,[it.lat,it.lng]); });
     items.sort(function(a,b){return a.d-b.d;});
     items.slice(0,80).forEach(function(it){
       var p=POI[it.cat];
@@ -1881,15 +2097,16 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
         toast('🎯 Destination : '+esc(it.name));
         sheet.classList.remove('open');
       };
-      var mk=L.marker([it.lat,it.lng],{icon:poiIcon(p.emoji,p.color)})
-        .bindPopup('<b>'+p.emoji+' '+esc(it.name)+'</b><br>'+esc(lbl)+siteHtml+
-          '<br>'+
-          '<button class="popgo">🎯 Définir comme destination</button>')
-        .addTo(poiLayer);
-      mk.on('popupopen', function(e){
-        var b=e.popup.getElement().querySelector('.popgo');
-        if(b) b.addEventListener('click', setDest);
+      var pop=document.createElement('div');
+      pop.innerHTML='<b>'+p.emoji+' '+esc(it.name)+'</b><br>'+esc(lbl)+siteHtml+
+        '<br>'+
+        '<button class="popgo">🎯 Définir comme destination</button>';
+      var mk=poiMarker(p.emoji, p.color, it.lat, it.lng).setPopup(popupOf(pop));
+      pop.querySelector('.popgo').addEventListener('click', function(){
+        mk.getPopup().remove();
+        setDest();
       });
+      poiLayer.add(mk.addTo(map));
       var row=document.createElement('div'); row.className='result';
       row.innerHTML='<div class="ico">'+p.emoji+'</div><div class="txt"><b>'+esc(it.name)+
         '</b><small>'+esc(lbl)+' · à '+fmtKm(it.d)+siteHtml+'</small></div>'+
@@ -1969,7 +2186,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     navigator.geolocation.getCurrentPosition(function(pos){
       hideToast();
       var lat=pos.coords.latitude, lng=pos.coords.longitude;
-      map.setView([lat,lng],14);
+      setView(lat,lng,14);
       reverse(lat,lng).then(function(lbl){
         setPoint('from',lat,lng,lbl); $('#fromInp').value=lbl;
       });
@@ -2117,8 +2334,10 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
       el.addEventListener('click', function(){ setBasemap(key, true); });
       host.appendChild(el);
     });
+    // Le fond mémorisé a déjà servi à créer la carte : on ne recharge le style
+    // que s'il diffère (cas d'un stockage illisible au démarrage).
     var saved = HAS_LS ? (localStorage.getItem('cc_base')||'') : '';
-    if(saved && BASEMAPS[saved]) setBasemap(saved, false);
+    if(saved && BASEMAPS[saved] && saved!==currentBase) setBasemap(saved, false);
   })();
 
   loadStore();
@@ -2130,20 +2349,24 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     lastAutoZoom=null; zoomSpeedFilt=null; // reprend la main sur le zoom, quel que soit le niveau laissé manuellement
     if(navLast){ panFollow(navLast); }
   });
-  // Dès que l'utilisateur déplace la carte en navigation, on remet le nord en haut :
-  // Leaflet ignore la transform CSS, un glissement sur carte tournée irait de travers.
-  map.on('dragstart', function(){
+  // Dès que l'utilisateur déplace ou zoome la carte en navigation, le suivi
+  // automatique s'interrompt (la carte garde son orientation) et le bouton
+  // « Recentrer » apparaît. Seuls les gestes portent un originalEvent : les
+  // mouvements lancés par l'appli elle-même ne coupent pas le suivi.
+  function userMoved(e){
+    if(e && !e.originalEvent) return;
     if(navActive && following){
       following=false;
-      resetRotation();
       $('#recenter').classList.add('show');
     }
-  });
+  }
+  map.on('dragstart', userMoved);
+  map.on('zoomstart', userMoved);
 
   // ================= Clés d'API : TomTom + Openrouteservice =================
   var ttKey  = HAS_LS ? (localStorage.getItem('cc_ttkey') ||'') : '';
   var orsKey = HAS_LS ? (localStorage.getItem('cc_orskey')||'') : '';
-  var ttLayer=null, ttActive=false, ttErrors=0, ttWarned=false;
+  var ttActive=false, ttErrors=0, ttWarned=false;
 
   function storeKey(name, val){
     if(!HAS_LS) return;
@@ -2155,7 +2378,8 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     a.className = 'state'+(ttKey?' on':'');
     b.textContent = orsKey ? '✓ Clé enregistrée' : 'Aucune clé enregistrée';
     b.className = 'state'+(orsKey?' on':'');
-    c.textContent = pmKey ? '✓ Clé enregistrée' : 'Aucune clé enregistrée — le fond de carte ne s\'affiche pas';
+    c.textContent = pmKey ? (pmBroken ? '⚠ Clé enregistrée mais refusée — fond OpenStreetMap en attendant' : '✓ Clé enregistrée')
+                          : 'Aucune clé enregistrée — fond OpenStreetMap affiché';
     c.className = 'state'+(pmKey?' on':'');
     $('#keyForget').style.display = ttKey ? 'block':'none';
     $('#orsForget').style.display = orsKey ? 'block':'none';
@@ -2273,7 +2497,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     toast('<span class="spin"></span>Vérification de la clé…',0);
     probePmKey(k).then(function(){
       hideToast();
-      pmKey=k; storeKey('cc_pmkey',k);
+      pmKey=k; pmBroken=false; storeKey('cc_pmkey',k);
       $('#pmInput').value='';
       refreshKeyStates();
       applyTiles();
@@ -2288,33 +2512,47 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     pmKey=''; storeKey('cc_pmkey','');
     refreshKeyStates();
     applyTiles();
-    toast('Clé Protomaps oubliée. Le fond de carte ne s\'affichera plus.',4000);
+    toast('Clé Protomaps oubliée. Fond OpenStreetMap affiché.',4000);
   });
+
+  // Couche raster du trafic, glissée sous le cadre de recherche et le tracé :
+  // l'itinéraire reste lisible par-dessus les couleurs du trafic.
+  function addTrafficLayer(){
+    if(!styleReady) return;   // sera ajoutée au prochain « style.load »
+    if(!map.getSource('cc-traffic')) map.addSource('cc-traffic', {
+      type:'raster', tiles:[ttUrl()], tileSize:256, maxzoom:18
+    });
+    if(!map.getLayer('cc-traffic')) map.addLayer({
+      id:'cc-traffic', type:'raster', source:'cc-traffic',
+      paint:{ 'raster-opacity':0.9, 'raster-fade-duration':0 }
+    }, map.getLayer('cc-area') ? 'cc-area' : undefined);
+  }
+  function removeTrafficLayer(){
+    if(!styleReady) return;
+    if(map.getLayer('cc-traffic')) map.removeLayer('cc-traffic');
+    if(map.getSource('cc-traffic')) map.removeSource('cc-traffic');
+  }
+  // Une tuile en échec n'est pas une clé invalide : coupure réseau, zone non
+  // couverte, quota momentané. On alerte, on n'efface jamais la clé.
+  function onTrafficTileError(){
+    if(!ttActive || ++ttErrors < 8 || ttWarned) return;
+    ttWarned=true;
+    toast('Trafic indisponible pour le moment (réseau ou quota). La clé est conservée.',5000);
+    closeTraffic();
+  }
 
   function openTraffic(silent){
     ttErrors=0; ttWarned=false;
-    if(!ttLayer){
-      ttLayer=L.tileLayer(ttUrl(), { maxZoom:22, opacity:0.9, zIndex:350 });
-      // Une tuile en échec n'est pas une clé invalide : coupure réseau, zone non
-      // couverte, quota momentané. On alerte, on n'efface jamais la clé.
-      ttLayer.on('tileerror', function(){
-        if(++ttErrors < 8 || ttWarned) return;
-        ttWarned=true;
-        toast('Trafic indisponible pour le moment (réseau ou quota). La clé est conservée.',5000);
-        closeTraffic();
-      });
-    } else {
-      ttLayer.setUrl(ttUrl());
-    }
-    ttLayer.addTo(map);
+    removeTrafficLayer();   // repart de zéro : la clé a pu changer
     ttActive=true;
+    addTrafficLayer();
     $('#trafficBtn').classList.add('on');
     if(!silent) toast('🚦 Trafic en direct affiché.',2500);
   }
 
   function closeTraffic(){
-    if(ttLayer){ map.removeLayer(ttLayer); }
     ttActive=false;
+    removeTrafficLayer();
     $('#trafficBtn').classList.remove('on');
   }
 
@@ -2441,7 +2679,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
   function checkRestrictionsAhead(here){
     if(!routeWarnings.length) return;
     routeWarnings.forEach(function(o,i){
-      var d=map.distance(here,[o.lat,o.lng]);
+      var d=distM(here,[o.lat,o.lng]);
       var st=spokenWarn[i]||0;   // 0=rien, 1=alerte 800 m, 2=alerte 300 m
       if(d<=WARN_NEAR && st<2){
         spokenWarn[i]=2;
@@ -2476,39 +2714,49 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     if(!voiceOn && 'speechSynthesis' in window) window.speechSynthesis.cancel();
   });
 
-  // ---------- Dimensionnement de la carte en mode navigation ----------
-  var mapEl=document.getElementById('map'), lastHd=null, contAngle=0;
-  function navSize(){
-    // Un carré de côté = diagonale de l'écran : quel que soit le cap, la carte
-    // couvre toujours toute la fenêtre après rotation. Aucun coin vide.
-    var d = Math.ceil(Math.hypot(window.innerWidth, window.innerHeight)) + 40;
-    document.body.style.setProperty('--navd', d+'px');
+  // ---------- Caméra de navigation ----------
+  // Carte orientée dans le sens de marche (bearing = cap), légèrement inclinée
+  // comme sur un GPS, véhicule placé aux deux tiers bas de l'écran pour voir
+  // loin devant. MapLibre fait tourner la carte entière : les marqueurs, le
+  // tracé et les noms de rues restent droits et à leur place.
+  var NAV_PITCH = 45;            // inclinaison en degrés (0 = vue de dessus)
+  var NAV_PUCK  = 0.68;          // position verticale du véhicule (part de la hauteur)
+  var navHeading = null;         // dernier cap connu (degrés, 0 = nord)
+  var trimPrev = null;           // point d'effacement du tracé (position GPS précédente)
+
+  function navPadding(){
+    var h = map.getContainer().clientHeight;
+    // Le centre de la zone utile tombe à NAV_PUCK de la hauteur de l'écran.
+    return { top: Math.round(h*(2*NAV_PUCK-1)), bottom:0, left:0, right:0 };
   }
-  window.addEventListener('resize', function(){
-    if(!navActive) return;
-    navSize();
-    setTimeout(function(){ map.invalidateSize({animate:false}); }, 60);
+  // Un seul mouvement de caméra par position : centre, cap, inclinaison et zoom
+  // ensemble, sans animations concurrentes. Durée proche de l'intervalle GPS
+  // (~1 s) et progression linéaire : la carte glisse sans à-coups.
+  function panFollow(here){
+    map.easeTo({
+      center:[here.lng, here.lat],
+      bearing: navHeading!=null ? navHeading : map.getBearing(),
+      pitch: NAV_PITCH,
+      zoom: lastAutoZoom!=null ? lastAutoZoom : map.getZoom(),
+      padding: navPadding(),
+      duration: 900, easing:function(t){ return t; }
+    });
+  }
+  // Pendant le suivi, le repère du véhicule colle au point focal de la caméra :
+  // il glisse avec elle entre deux positions GPS au lieu de sauter en avant
+  // puis d'attendre que la carte le rattrape.
+  map.on('move', function(){
+    if(navActive && following && navMarker) navMarker.setLngLat(map.getCenter());
   });
 
-  function setMapRot(deg){
-    contAngle = deg;
-    mapEl.style.transform = deg ? 'rotate('+(-deg)+'deg)' : '';
-    document.body.style.setProperty('--maprot', deg+'deg');
+  // Cap fourni par le GPS ; à défaut (arrêt, certains téléphones), déduit du
+  // déplacement depuis la position précédente, s'il est assez net.
+  function headingFrom(pos, here){
+    var hd = pos.coords.heading;
+    if(hd!=null && !isNaN(hd) && hd>=0) return hd;   // certains iPhone renvoient -1 à l'arrêt
+    if(navLast && distM(navLast, here) > 8) return bearingTo(navLast, here);
+    return null;
   }
-  function rotateHeadingUp(h){
-    if(h==null || isNaN(h)) return contAngle;
-    if(lastHd==null){ lastHd=h; setMapRot(h); }
-    else {
-      var dlt=h-lastHd; while(dlt>180)dlt-=360; while(dlt<-180)dlt+=360;
-      lastHd=h; setMapRot(contAngle+dlt);
-    }
-    return contAngle;
-  }
-  function resetRotation(){ lastHd=null; setMapRot(0); }
-
-  // Le centre de #map est placé à 68 % de la hauteur de l'écran : centrer la
-  // carte sur le véhicule suffit, la rotation se fait autour de ce point.
-  function panFollow(here){ map.panTo(here, {animate:true, duration:.5}); }
 
   // ---------- Zoom automatique ----------
   // Vue large à haute vitesse (autoroute), rapprochée à basse vitesse (ville,
@@ -2544,17 +2792,17 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
   function applyAutoZoom(kmh, d, maneuverType){
     if(!following) return;
     var z = autoZoomFor(kmh, d, maneuverType);
-    // animate:false — un zoom animé en parallèle du panFollow (lui aussi animé)
-    // fait entrer les deux animations Leaflet en conflit et peut casser le rendu
-    // du tracé (SVG réduit à un point). Le zoom change peu souvent ; le voir
-    // s'ajuster net, sans transition, n'est pas gênant en conduite.
-    if(z !== lastAutoZoom){ lastAutoZoom = z; map.setZoom(z, {animate:false}); }
+    // Le nouveau zoom part dans le même mouvement de caméra que le centrage :
+    // relancer panFollow remplace le mouvement en cours au lieu de le contrarier.
+    if(z !== lastAutoZoom){ lastAutoZoom = z; if(navLast) panFollow(navLast); }
   }
 
-  function navDot(counter){
-    var rot = (counter!=null && !isNaN(counter)) ? counter : 0;
-    return L.divIcon({className:'',iconSize:[22,22],iconAnchor:[11,11],
-      html:'<div class="navdot"><i style="transform:rotate('+rot+'deg)"></i></div>'});
+  // Repère du véhicule : sa flèche suit le cap sur la carte (rotationAlignment
+  // 'map') et se couche avec elle quand la vue est inclinée.
+  function navDotMarker(){
+    var w = markerEl('<div class="navdot"><i></i></div>', 'navmk');
+    return new maplibregl.Marker({ element:w, anchor:'center',
+      rotationAlignment:'map', pitchAlignment:'map' });
   }
 
   var lastGpsWarn=0;
@@ -2563,20 +2811,29 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     if(!navigator.geolocation){ toast('Géolocalisation non disponible sur cet appareil.'); return; }
     navSteps=flattenSteps(lastRoute);
     if(navSteps.length<2){ toast('Itinéraire trop court pour le guidage.'); return; }
-    navPtr=1; navIdx=1; offCount=0;
+    navPtr=1; navIdx=1; offCount=0; trimPrev=null;
     spokenFar={}; spokenNear={}; spokenWarn={};
     navActive=true; following=true; lastAutoZoom=null; zoomSpeedFilt=null;
 
-    navSize();
     document.body.classList.add('nav');
-    map.invalidateSize({animate:false});
-    map.setZoom(16);
+    map.resize();
     $('#recenter').classList.remove('show');
     sheet.classList.remove('open');
-    resetRotation();
+    // Avant le premier point GPS : vue posée sur le départ, orientée dans le sens
+    // du début de l'itinéraire.
+    navLast=null;
+    var c0={lat:routeCoords[0][0], lng:routeCoords[0][1]};
+    navHeading=null;
+    for(var i=1;i<routeCoords.length;i++){
+      var ci={lat:routeCoords[i][0], lng:routeCoords[i][1]};
+      if(distM(c0, ci) > 15){ navHeading=bearingTo(c0, ci); break; }
+    }
+    map.easeTo({ center:[c0.lng, c0.lat], zoom:16, pitch:NAV_PITCH,
+                 bearing: navHeading!=null ? navHeading : 0,
+                 padding:navPadding(), duration:800 });
     requestWake();
     unlockAudio();
-    if(navMarker){ map.removeLayer(navMarker); navMarker=null; }
+    if(navMarker){ navMarker.remove(); navMarker=null; }
     speak('Navigation démarrée.', true);
     updateNavDisplay(null);
 
@@ -2592,34 +2849,39 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
 
   function stopNav(){
     navActive=false; following=true;
-    resetRotation();
     document.body.classList.remove('nav');
-    map.invalidateSize({animate:false});
     $('#recenter').classList.remove('show');
     releaseWake();
     if(navWatch!=null){ navigator.geolocation.clearWatch(navWatch); navWatch=null; }
-    if(navMarker){ map.removeLayer(navMarker); navMarker=null; }
+    if(navMarker){ navMarker.remove(); navMarker=null; }
     if('speechSynthesis' in window) window.speechSynthesis.cancel();
     if(altTimer){ clearInterval(altTimer); altTimer=null; }
     hideAltBanner();
+    // Retour à la carte d'accueil : nord en haut, vue de dessus, sans le décalage
+    // du véhicule (la marge de navigation reste sinon mémorisée par la caméra).
+    map.stop();
+    map.jumpTo({ bearing:0, pitch:0, padding:{ top:0, bottom:0, left:0, right:0 } });
+    map.resize();
     // Le tracé a été effacé au fil de la route pendant le guidage : on le réaffiche en entier.
-    if(routeLayer && routeCoords) routeLayer.eachLayer(function(ly){ ly.setLatLngs(routeCoords); });
-    if(routeCoords) map.fitBounds(L.latLngBounds(routeCoords),{padding:[50,50]});
+    if(routeLayer && routeCoords) setRouteData(routeCoords);
+    if(routeCoords) fitCoords(routeCoords);
     openSheet();
   }
 
   function onNavPos(pos){
     if(!navActive) return;
-    var lat=pos.coords.latitude, lng=pos.coords.longitude, hd=pos.coords.heading;
-    var here=L.latLng(lat,lng);
+    var lat=pos.coords.latitude, lng=pos.coords.longitude;
+    var here={lat:lat, lng:lng};
 
     var sp = pos.coords.speed;
     var kmh = (sp!=null && !isNaN(sp) && sp>=0) ? Math.round(sp*3.6) : null;
     $('#navSpeed').textContent = (kmh!=null) ? kmh : '—';
 
-    var counter = following ? rotateHeadingUp(hd) : contAngle;
-    if(navMarker) navMarker.setLatLng(here).setIcon(navDot(counter));
-    else navMarker=L.marker(here,{icon:navDot(counter),zIndexOffset:1000}).addTo(map);
+    var hdg = headingFrom(pos, here);
+    if(hdg!=null) navHeading = hdg;
+    if(!navMarker) navMarker = navDotMarker().setLngLat([lng, lat]).addTo(map);
+    else navMarker.setLngLat([lng, lat]);
+    navMarker.setRotation(navHeading!=null ? navHeading : 0);
     navLast=here;
     if(following) panFollow(here);
 
@@ -2630,7 +2892,10 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     var near = routeXY ? nearestOn(routeXY, lat, lng, navIdx-40, navIdx+400) : null;
     if(near){
       navIdx = near.i;
-      trimRoute(L.latLng(near.lat, near.lng), navIdx);
+      // On efface jusqu'à la position PRÉCÉDENTE : le repère glisse encore vers
+      // la nouvelle pendant ~1 s, le tracé doit donc commencer derrière lui.
+      if(trimPrev) trimRoute(trimPrev.pt, trimPrev.idx);
+      trimPrev = { pt:{lat:near.lat, lng:near.lng}, idx:navIdx };
       if(near.d>60){
         offCount++;
         // 2 positions consécutives plutôt que 3 : détecte la sortie d'itinéraire
@@ -2647,12 +2912,12 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     var step=navSteps[navPtr];
     if(!step) return;
     var loc=step.maneuver.location; // [lng,lat]
-    var target=L.latLng(loc[1],loc[0]);
-    var d=map.distance(here,target);
+    var target={lat:loc[1], lng:loc[0]};
+    var d=distM(here,target);
 
     if(d<25 && navPtr<navSteps.length-1){
       navPtr++; step=navSteps[navPtr];
-      loc=step.maneuver.location; target=L.latLng(loc[1],loc[0]); d=map.distance(here,target);
+      loc=step.maneuver.location; target={lat:loc[1], lng:loc[0]}; d=distM(here,target);
     }
 
     applyAutoZoom(kmh, d, step.maneuver.type);
@@ -2744,7 +3009,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     navIdx=1;
     clearRouteLayers();
     routeLayer = drawRoute(routeCoords);
-    navSteps=flattenSteps(rt); navPtr=1;
+    navSteps=flattenSteps(rt); navPtr=1; trimPrev=null;
     spokenFar={}; spokenNear={}; spokenWarn={};
     routeWarnings=[]; warnLayer.clearLayers();
     warnKey='';
@@ -2775,7 +3040,7 @@ if (typeof L === 'undefined' || typeof protomapsL === 'undefined') {
     var step=navSteps[navPtr];
     var d=0;
     if(step && step.maneuver && step.maneuver.location){
-      d = map.distance(navLast, L.latLng(step.maneuver.location[1], step.maneuver.location[0]));
+      d = distM(navLast, {lat:step.maneuver.location[1], lng:step.maneuver.location[0]});
     }
     return d + remainingFrom(navPtr);
   }

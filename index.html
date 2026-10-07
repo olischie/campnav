@@ -289,9 +289,9 @@
     box-shadow:0 -6px 24px rgba(0,0,0,.5);
   }
   body.nav #navBottom{ display:flex; }
-  #navBottom .nb-cell{flex:1;display:flex;flex-direction:column;}
-  #navBottom .k{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);}
-  #navBottom .v{font-size:18px;margin-top:1px;}
+  #navBottom .nb-cell{flex:1;min-width:0;display:flex;flex-direction:column;}
+  #navBottom .k{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);white-space:nowrap;}
+  #navBottom .v{font-size:18px;margin-top:1px;white-space:nowrap;}
   #navBottom .navquit{
     flex:none;background:var(--red);border:0;color:#fff;font-weight:700;font-size:15px;
     padding:13px 18px;border-radius:12px;
@@ -456,7 +456,7 @@
     .field input{ font-size:16px; }
   }
   @media (max-width:340px){
-    #navBottom .nb-cell:nth-child(3){ display:none; }
+    #navBottom .nb-cell:nth-child(1){ display:none; }
     .tab{ font-size:11px; }
   }
 </style>
@@ -492,6 +492,7 @@
 <div id="navBottom">
   <div class="nb-cell"><span class="k">Restant</span><span class="v mono" id="navRemain">—</span></div>
   <div class="nb-cell"><span class="k">Arrivée dans</span><span class="v mono" id="navEta">—</span></div>
+  <div class="nb-cell"><span class="k">Arrivée vers</span><span class="v mono" id="navClock">—</span></div>
   <button class="navquit" id="navQuit">Quitter</button>
 </div>
 
@@ -633,6 +634,16 @@
         <div class="lbl">🚧 Éviter les péages<small>Contourne les routes à péage (clé TomTom ou ORS requise)</small></div>
         <button class="toggle" id="tollChip" data-on="0" role="switch" aria-checked="false" aria-label="Éviter les péages"></button>
       </div>
+
+      <label class="lb">Sortie du son</label>
+      <div class="basegrid" id="audioChips">
+        <button class="chip" data-audio="phone"><b>📱 Téléphone</b><small>Haut-parleur ou écouteurs</small></button>
+        <button class="chip" data-audio="car"><b>🚗 Autoradio</b><small>Bluetooth ou câble</small></button>
+      </div>
+      <button class="btn ghost" id="audioTest">🔊 Tester le son</button>
+      <p>Le téléphone envoie le son là où il est branché : à l'autoradio s'il y est relié (Bluetooth ou câble), sinon à son propre haut-parleur. Une page web ne peut pas choisir elle-même la sortie.</p>
+      <p><b>Autoradio</b> : pendant le guidage, l'appli garde la liaison audio ouverte, pour que l'autoradio ne coupe pas le début des annonces. En Bluetooth, vérifiez dans les réglages Bluetooth du téléphone que « Audio multimédia » est activé pour la voiture, et mettez l'autoradio sur la source Bluetooth (ou AUX/USB avec un câble).</p>
+      <p><b>Forcer le haut-parleur</b> alors que l'autoradio est connecté : sur Android, ouvrez les réglages rapides et touchez la zone du lecteur multimédia pour choisir « Ce téléphone » ; sur iPhone, ouvrez le Centre de contrôle, touchez l'icône AirPlay et choisissez « iPhone ».</p>
 
       <label class="lb">Fond de carte</label>
       <div class="basegrid" id="baseChips"></div>
@@ -2691,14 +2702,83 @@
 
   // La voix est mise en file : une annonce n'écrase plus la précédente.
   // `urgent` (arrivée, alerte de gabarit) passe devant tout le reste.
-  function speak(txt, urgent){
-    if(!voiceOn || !('speechSynthesis' in window)) return;
-    try{
-      if(urgent) window.speechSynthesis.cancel();
-      var u=new SpeechSynthesisUtterance(txt); u.lang='fr-FR'; u.rate=1.02;
-      window.speechSynthesis.speak(u);
-    }catch(e){}
+  // `force` : parle même si la voix est coupée (bouton « Tester le son »).
+  function speak(txt, urgent, force){
+    if((!voiceOn && !force) || !('speechSynthesis' in window)) return;
+    var go=function(){
+      try{
+        if(urgent) window.speechSynthesis.cancel();
+        var u=new SpeechSynthesisUtterance(txt); u.lang='fr-FR'; u.rate=1.02;
+        window.speechSynthesis.speak(u);
+      }catch(e){}
+    };
+    if(audioOut==='car'){
+      // Liaison pas encore ouverte : on laisse à l'autoradio le temps de
+      // basculer sur le son du téléphone avant de parler.
+      var fresh=openAudioLink();
+      if(!navActive) closeAudioLinkLater(10000);
+      if(fresh){ setTimeout(go, 800); return; }
+    }
+    go();
   }
+
+  // ---------- Sortie du son : téléphone ou autoradio ----------
+  // Une page web ne choisit pas la sortie audio : le système envoie le son vers
+  // l'autoradio s'il est connecté, sinon vers le haut-parleur. Ce qu'on peut
+  // faire, c'est garder la liaison ouverte. Beaucoup d'autoradios coupent le
+  // flux Bluetooth après quelques secondes de silence et mettent ensuite une
+  // seconde à le rouvrir : le début de chaque annonce (« Dans 500 mètres… »)
+  // passe à la trappe. En mode Autoradio, un son inaudible circule donc en
+  // continu pendant le guidage.
+  var audioOut='phone';
+  try{ var ao=localStorage.getItem('cc_audio'); if(ao==='car' || ao==='phone') audioOut=ao; }catch(e){}
+  var audioLink=null, audioLinkT=null;
+
+  function openAudioLink(){
+    if(audioLinkT){ clearTimeout(audioLinkT); audioLinkT=null; }
+    unlockAudio();
+    if(!audioCtx || audioLink) return false;
+    try{
+      var osc=audioCtx.createOscillator(), g=audioCtx.createGain();
+      // Très faible mais pas nul : certains autoradios ferment le flux sur un
+      // silence numérique parfait. À ce niveau (≈ −70 dB), rien ne s'entend.
+      osc.frequency.value=200; g.gain.value=0.0003;
+      osc.connect(g); g.connect(audioCtx.destination);
+      osc.start();
+      audioLink={ osc:osc, g:g };
+      return true;
+    }catch(e){ return false; }
+  }
+  function closeAudioLink(){
+    if(audioLinkT){ clearTimeout(audioLinkT); audioLinkT=null; }
+    if(!audioLink) return;
+    try{ audioLink.osc.stop(); audioLink.osc.disconnect(); audioLink.g.disconnect(); }catch(e){}
+    audioLink=null;
+  }
+  function closeAudioLinkLater(ms){
+    if(audioLinkT) clearTimeout(audioLinkT);
+    audioLinkT=setTimeout(function(){ audioLinkT=null; if(!navActive) closeAudioLink(); }, ms);
+  }
+
+  function setAudioOut(mode){
+    audioOut = (mode==='car') ? 'car' : 'phone';
+    if(HAS_LS){ try{ localStorage.setItem('cc_audio', audioOut); }catch(e){} }
+    document.querySelectorAll('#audioChips .chip').forEach(function(c){
+      c.classList.toggle('on', c.dataset.audio===audioOut);
+    });
+    if(audioOut==='car'){ if(navActive) openAudioLink(); }
+    else closeAudioLink();
+  }
+  document.querySelectorAll('#audioChips .chip').forEach(function(c){
+    c.addEventListener('click', function(){ setAudioOut(c.dataset.audio); });
+  });
+  $('#audioTest').addEventListener('click', function(){
+    unlockAudio();
+    if(!('speechSynthesis' in window)){ toast('La synthèse vocale n\'est pas disponible dans ce navigateur.'); return; }
+    speak('Test du son. Dans 500 mètres, tournez à droite.', true, true);
+    toast(audioOut==='car' ? '🔊 Test en cours : le son doit sortir par l\'autoradio s\'il est connecté.'
+                           : '🔊 Test en cours.', 3500);
+  });
 
   // ---------- Signal sonore d'alerte (synthétisé, aucun fichier requis) ----------
   var audioCtx=null;
@@ -2773,6 +2853,7 @@
   $('#startNav').addEventListener('click', startNav);
   $('#navQuit').addEventListener('click', stopNav);
   syncThemeBtns();
+  setAudioOut(audioOut);
   $('#navVoice').addEventListener('click', function(){
     voiceOn=!voiceOn; this.classList.toggle('off',!voiceOn);
     this.textContent=voiceOn?'🔊':'🔇';
@@ -2900,7 +2981,7 @@
     requestWake();
     unlockAudio();
     if(navMarker){ navMarker.remove(); navMarker=null; }
-    speak('Navigation démarrée.', true);
+    speak('Navigation démarrée.', true);   // en mode Autoradio, ouvre aussi la liaison audio
     updateNavDisplay(null);
 
     // Surveillance du trafic : uniquement avec TomTom, qui seul voit le trafic.
@@ -2918,6 +2999,7 @@
     document.body.classList.remove('nav');
     $('#recenter').classList.remove('show');
     releaseWake();
+    closeAudioLink();
     if(navWatch!=null){ navigator.geolocation.clearWatch(navWatch); navWatch=null; }
     if(navMarker){ navMarker.remove(); navMarker=null; }
     if('speechSynthesis' in window) window.speechSynthesis.cancel();
@@ -3071,6 +3153,18 @@
     return rem;
   }
 
+  // Heure d'arrivée estimée (heure du téléphone) : « 14:35 », ou « 01:20 +1j »
+  // si l'arrivée tombe un autre jour.
+  function clockAt(secs){
+    var now=new Date(), t=new Date(now.getTime()+Math.max(0,secs)*1000);
+    var h=t.getHours(), m=t.getMinutes();
+    var txt=(h<10?'0':'')+h+':'+(m<10?'0':'')+m;
+    var d0=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+    var d1=new Date(t.getFullYear(),t.getMonth(),t.getDate());
+    var days=Math.round((d1-d0)/86400000);
+    return days>0 ? txt+' +'+days+'j' : txt;
+  }
+
   function updateNavDisplay(d, fr, remain){
     if(fr){ $('#navArrow').textContent=fr.a; $('#navInstr').textContent=fr.t; }
     $('#navDist').textContent = d==null?'—':(d<1000?Math.round(d/10)*10+' m':fmtKm(d));
@@ -3081,6 +3175,7 @@
       if(lastRoute && lastRoute.distance>0) secs = lastRoute.duration * (remain/lastRoute.distance);
       else secs = remain / (50000/3600);
       $('#navEta').textContent=fmtDur(secs);
+      $('#navClock').textContent=clockAt(secs);
     }
   }
 

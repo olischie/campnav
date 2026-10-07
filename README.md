@@ -11,9 +11,8 @@ Application web de navigation pensée pour les camping-cars, **optimisée mobile
   - avec une **clé TomTom** ou **Openrouteservice**, l'itinéraire est **calculé pour votre gabarit** (les passages trop bas ou limités en tonnage sont évités par le moteur) ;
   - dans tous les cas, les **restrictions rencontrées** le long du trajet sont repérées à partir des données OpenStreetMap et annoncées à l'approche.
 - **Aires & services** : aires de camping-car, campings, parkings, restaurants, supermarchés, sites touristiques (Overpass). Les résultats s'effacent de la carte d'un bouton.
-- **Navigation guidée** : suivi GPS temps réel, carte **orientée dans le sens de marche et inclinée** comme sur un GPS (véhicule placé aux deux tiers bas de l'écran pour voir loin devant), recentrage, instructions virage par virage, **annonces vocales en français** (à 1 km, 500 m et 200 m, puis au moment de tourner), **compteur de vitesse** en bas à gauche, **alternative proposée si le trafic fait gagner au moins 10 min** (clé TomTom ; la proposition s'efface au bout de 45 s), bouton trafic accessible en roulant, verrouillage de l'écran, recalcul automatique en cas de sortie d'itinéraire.
+- **Navigation guidée** : suivi GPS temps réel, carte **orientée dans le sens de marche et inclinée** comme sur un GPS (véhicule placé aux deux tiers bas de l'écran pour voir loin devant), **position calée sur la route** tant qu'on suit l'itinéraire (le repère avance le long du tracé, sans couper les virages), **tracé parcouru effacé au fur et à mesure**, recentrage, instructions virage par virage, **annonces vocales en français** (à 1 km, 500 m et 200 m, puis au moment de tourner), **compteur de vitesse** en bas à gauche, **alternative proposée si le trafic fait gagner au moins 10 min** (clé TomTom ; la proposition s'efface au bout de 45 s), bouton trafic accessible en roulant, verrouillage de l'écran, recalcul automatique en cas de sortie d'itinéraire.
 - **Heure d'arrivée estimée** affichée pendant le guidage, à côté du temps restant.
-- **Sortie du son** (onglet Options) : **Téléphone** ou **Autoradio** (Bluetooth ou câble). Le téléphone envoie lui-même le son vers l'autoradio quand il y est connecté ; en mode Autoradio, l'appli garde la liaison audio ouverte pendant le guidage pour que le début des annonces ne soit pas coupé. Un bouton **Tester le son** permet de vérifier d'où sort la voix.
 - **Favoris** et **profil véhicule** sauvegardés localement (persistants d'une session à l'autre).
 - **Trafic TomTom en direct** (optionnel, nécessite votre propre clé — voir plus bas).
 
@@ -83,12 +82,12 @@ Il n'est appelé que si au moins une dimension est renseignée : sans profil vé
 - L'**évitement** des restrictions dépend du moteur : TomTom ou Openrouteservice. Avec OSRM (sans aucune clé), l'appli **signale** les obstacles mais ne les contourne pas.
 - Openrouteservice plafonne les trajets à 6 000 km et à 3 alternatives, et impose un quota journalier.
 - Les alertes de gabarit reposent sur les données OpenStreetMap : elles sont incomplètes par endroits et **ne remplacent jamais les panneaux routiers**.
+- Avec le moteur TomTom, le tracé vient de la cartographie TomTom alors que le fond de carte vient d'OpenStreetMap : par endroits, les deux peuvent différer de quelques mètres. Openrouteservice et OSRM, eux, utilisent les mêmes données que le fond de carte.
 - Une restriction portant sur un long tronçon est rattachée au point de votre trajet le plus proche du tronçon : sa position est approximative.
 - Les services publics utilisés (Nominatim, OSRM, Overpass) sont gratuits mais soumis à des **politiques d'usage raisonnable** : ils peuvent être lents ou limités en volume, et ne conviennent pas à un usage intensif ou commercial.
 - Overpass est interrogé sur **trois instances successives** (`overpass-api.de`, `overpass.kumi.systems`, `overpass.private.coffee`) : si l'une sature, l'appli bascule automatiquement sur la suivante. La pastille grise « contrôle du gabarit indisponible » signifie que **les trois** ont échoué — donc *non vérifié*, et non *rien à signaler*.
 - Le trafic TomTom s'affiche en surcouche ; il n'influence le calcul d'itinéraire que via le paramètre `traffic=true` du moteur TomTom.
 - En navigation, déplacer ou zoomer la carte à la main suspend le suivi automatique (la carte garde son orientation) : le bouton **⌖ Recentrer** le rétablit.
-- Une page web ne peut pas choisir la sortie audio : c'est le téléphone qui décide (autoradio s'il est connecté, haut-parleur sinon). Pour forcer le haut-parleur alors que l'autoradio est connecté, passez par le sélecteur de sortie du téléphone (réglages rapides sur Android, Centre de contrôle › AirPlay sur iPhone).
 - MapLibre dessine la carte avec **WebGL**, présent sur tout téléphone récent. Sur un appareil qui en serait dépourvu, l'appli affiche un message au lieu de la carte.
 
 ## 🧰 Services & bibliothèques utilisés

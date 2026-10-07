@@ -635,16 +635,6 @@
         <button class="toggle" id="tollChip" data-on="0" role="switch" aria-checked="false" aria-label="Éviter les péages"></button>
       </div>
 
-      <label class="lb">Sortie du son</label>
-      <div class="basegrid" id="audioChips">
-        <button class="chip" data-audio="phone"><b>📱 Téléphone</b><small>Haut-parleur ou écouteurs</small></button>
-        <button class="chip" data-audio="car"><b>🚗 Autoradio</b><small>Bluetooth ou câble</small></button>
-      </div>
-      <button class="btn ghost" id="audioTest">🔊 Tester le son</button>
-      <p>Le téléphone envoie le son là où il est branché : à l'autoradio s'il y est relié (Bluetooth ou câble), sinon à son propre haut-parleur. Une page web ne peut pas choisir elle-même la sortie.</p>
-      <p><b>Autoradio</b> : pendant le guidage, l'appli garde la liaison audio ouverte, pour que l'autoradio ne coupe pas le début des annonces. En Bluetooth, vérifiez dans les réglages Bluetooth du téléphone que « Audio multimédia » est activé pour la voiture, et mettez l'autoradio sur la source Bluetooth (ou AUX/USB avec un câble).</p>
-      <p><b>Forcer le haut-parleur</b> alors que l'autoradio est connecté : sur Android, ouvrez les réglages rapides et touchez la zone du lecteur multimédia pour choisir « Ce téléphone » ; sur iPhone, ouvrez le Centre de contrôle, touchez l'icône AirPlay et choisissez « iPhone ».</p>
-
       <label class="lb">Fond de carte</label>
       <div class="basegrid" id="baseChips"></div>
 
@@ -913,7 +903,7 @@
   var EMPTY = { type:'FeatureCollection', features:[] };
   var WORLD = { type:'Feature', properties:{}, geometry:{ type:'Polygon',
                 coordinates:[[[-180,-85],[180,-85],[180,85],[-180,85],[-180,-85]]] } };
-  var routeData = EMPTY, areaData = EMPTY;
+  var routeData = EMPTY, nearData = EMPTY, areaData = EMPTY;
   var styleReady = false;
 
   function addCustomLayers(){
@@ -927,14 +917,21 @@
     if(!map.getSource('cc-area')) map.addSource('cc-area', { type:'geojson', data:areaData });
     if(!map.getLayer('cc-area')) map.addLayer({ id:'cc-area', type:'line', source:'cc-area',
       paint:{ 'line-color':'#2563eb', 'line-width':2, 'line-dasharray':[3,3] } });
+    // Le tracé est en deux morceaux : « cc-route » (tout ce qui est loin devant,
+    // mis à jour rarement) et « cc-route-near » (les quelques centaines de mètres
+    // devant le véhicule, mis à jour à chaque image en navigation pour effacer
+    // le parcouru sans traînée). Les deux liserés passent sous les deux traits :
+    // la jonction ne se voit pas.
     if(!map.getSource('cc-route')) map.addSource('cc-route', { type:'geojson', data:routeData });
+    if(!map.getSource('cc-route-near')) map.addSource('cc-route-near', { type:'geojson', data:nearData });
     // Liseré sombre + trait bleu vif : lisible sur fond clair comme sur fond nuit.
-    if(!map.getLayer('cc-route-casing')) map.addLayer({ id:'cc-route-casing', type:'line', source:'cc-route',
-      layout:{ 'line-join':'round', 'line-cap':'round' },
-      paint:{ 'line-color':'#0b1220', 'line-width':11, 'line-opacity':0.85 } });
-    if(!map.getLayer('cc-route-line')) map.addLayer({ id:'cc-route-line', type:'line', source:'cc-route',
-      layout:{ 'line-join':'round', 'line-cap':'round' },
-      paint:{ 'line-color':'#1d6fff', 'line-width':6 } });
+    var CASING = { 'line-color':'#0b1220', 'line-width':11, 'line-opacity':0.85 };
+    var LINE   = { 'line-color':'#1d6fff', 'line-width':6 };
+    var ROUND  = { 'line-join':'round', 'line-cap':'round' };
+    if(!map.getLayer('cc-route-casing')) map.addLayer({ id:'cc-route-casing', type:'line', source:'cc-route', layout:ROUND, paint:CASING });
+    if(!map.getLayer('cc-route-near-casing')) map.addLayer({ id:'cc-route-near-casing', type:'line', source:'cc-route-near', layout:ROUND, paint:CASING });
+    if(!map.getLayer('cc-route-line')) map.addLayer({ id:'cc-route-line', type:'line', source:'cc-route', layout:ROUND, paint:LINE });
+    if(!map.getLayer('cc-route-near-line')) map.addLayer({ id:'cc-route-near-line', type:'line', source:'cc-route-near', layout:ROUND, paint:LINE });
     applyTileFilter();
   }
   map.on('style.load', addCustomLayers);
@@ -1014,6 +1011,11 @@
     routeData = (coords && coords.length>1) ? toLine(coords) : EMPTY;
     var s = styleReady && map.getSource('cc-route');
     if(s) s.setData(routeData);
+  }
+  function setNearData(coords){
+    nearData = (coords && coords.length>1) ? toLine(coords) : EMPTY;
+    var s = styleReady && map.getSource('cc-route-near');
+    if(s) s.setData(nearData);
   }
   function setAreaData(bb){
     areaData = bb ? toLine([[bb[0],bb[1]],[bb[0],bb[3]],[bb[2],bb[3]],[bb[2],bb[1]],[bb[0],bb[1]]]) : EMPTY;
@@ -1578,19 +1580,16 @@
   // est une source GeoJSON de la carte (calques cc-route-*).
   function clearRouteLayers(){
     routeLayer=null;
+    farFrom=-1; lastTrimAlong=-1;
     setRouteData(null);
+    setNearData(null);
   }
 
   function drawRoute(coords){
+    farFrom=-1; lastTrimAlong=-1;
+    setNearData(null);
     setRouteData(coords);
     return true;
-  }
-
-  // En navigation, efface la portion déjà parcourue : ne reste affiché que ce
-  // qu'il reste à parcourir, avec un bord net sur la position actuelle.
-  function trimRoute(here, idx){
-    if(!routeLayer || !routeCoords) return;
-    setRouteData([[here.lat, here.lng]].concat(routeCoords.slice(idx)));
   }
 
   // Trace toutes les alternatives (gris) puis la sélectionnée (bleu, au-dessus)
@@ -2423,7 +2422,13 @@
   $('#recenter').addEventListener('click', function(){
     following=true; this.classList.remove('show');
     lastAutoZoom=null; zoomSpeedFilt=null; // reprend la main sur le zoom, quel que soit le niveau laissé manuellement
-    if(navLast){ panFollow(navLast); }
+    // Retour en douceur sur le véhicule ; le suivi image par image reprend ensuite.
+    if(shown){
+      camZoom = 16;
+      camHoldUntil = performance.now() + 650;
+      map.easeTo({ center:[shown.lng, shown.lat], bearing: dispBearing!=null ? dispBearing : map.getBearing(),
+                   pitch:NAV_PITCH, zoom:camZoom, padding:navPadding(), duration:600 });
+    }
   });
   // Dès que l'utilisateur déplace ou zoome la carte en navigation, le suivi
   // automatique s'interrompt (la carte garde son orientation) et le bouton
@@ -2702,83 +2707,14 @@
 
   // La voix est mise en file : une annonce n'écrase plus la précédente.
   // `urgent` (arrivée, alerte de gabarit) passe devant tout le reste.
-  // `force` : parle même si la voix est coupée (bouton « Tester le son »).
-  function speak(txt, urgent, force){
-    if((!voiceOn && !force) || !('speechSynthesis' in window)) return;
-    var go=function(){
-      try{
-        if(urgent) window.speechSynthesis.cancel();
-        var u=new SpeechSynthesisUtterance(txt); u.lang='fr-FR'; u.rate=1.02;
-        window.speechSynthesis.speak(u);
-      }catch(e){}
-    };
-    if(audioOut==='car'){
-      // Liaison pas encore ouverte : on laisse à l'autoradio le temps de
-      // basculer sur le son du téléphone avant de parler.
-      var fresh=openAudioLink();
-      if(!navActive) closeAudioLinkLater(10000);
-      if(fresh){ setTimeout(go, 800); return; }
-    }
-    go();
-  }
-
-  // ---------- Sortie du son : téléphone ou autoradio ----------
-  // Une page web ne choisit pas la sortie audio : le système envoie le son vers
-  // l'autoradio s'il est connecté, sinon vers le haut-parleur. Ce qu'on peut
-  // faire, c'est garder la liaison ouverte. Beaucoup d'autoradios coupent le
-  // flux Bluetooth après quelques secondes de silence et mettent ensuite une
-  // seconde à le rouvrir : le début de chaque annonce (« Dans 500 mètres… »)
-  // passe à la trappe. En mode Autoradio, un son inaudible circule donc en
-  // continu pendant le guidage.
-  var audioOut='phone';
-  try{ var ao=localStorage.getItem('cc_audio'); if(ao==='car' || ao==='phone') audioOut=ao; }catch(e){}
-  var audioLink=null, audioLinkT=null;
-
-  function openAudioLink(){
-    if(audioLinkT){ clearTimeout(audioLinkT); audioLinkT=null; }
-    unlockAudio();
-    if(!audioCtx || audioLink) return false;
+  function speak(txt, urgent){
+    if(!voiceOn || !('speechSynthesis' in window)) return;
     try{
-      var osc=audioCtx.createOscillator(), g=audioCtx.createGain();
-      // Très faible mais pas nul : certains autoradios ferment le flux sur un
-      // silence numérique parfait. À ce niveau (≈ −70 dB), rien ne s'entend.
-      osc.frequency.value=200; g.gain.value=0.0003;
-      osc.connect(g); g.connect(audioCtx.destination);
-      osc.start();
-      audioLink={ osc:osc, g:g };
-      return true;
-    }catch(e){ return false; }
+      if(urgent) window.speechSynthesis.cancel();
+      var u=new SpeechSynthesisUtterance(txt); u.lang='fr-FR'; u.rate=1.02;
+      window.speechSynthesis.speak(u);
+    }catch(e){}
   }
-  function closeAudioLink(){
-    if(audioLinkT){ clearTimeout(audioLinkT); audioLinkT=null; }
-    if(!audioLink) return;
-    try{ audioLink.osc.stop(); audioLink.osc.disconnect(); audioLink.g.disconnect(); }catch(e){}
-    audioLink=null;
-  }
-  function closeAudioLinkLater(ms){
-    if(audioLinkT) clearTimeout(audioLinkT);
-    audioLinkT=setTimeout(function(){ audioLinkT=null; if(!navActive) closeAudioLink(); }, ms);
-  }
-
-  function setAudioOut(mode){
-    audioOut = (mode==='car') ? 'car' : 'phone';
-    if(HAS_LS){ try{ localStorage.setItem('cc_audio', audioOut); }catch(e){} }
-    document.querySelectorAll('#audioChips .chip').forEach(function(c){
-      c.classList.toggle('on', c.dataset.audio===audioOut);
-    });
-    if(audioOut==='car'){ if(navActive) openAudioLink(); }
-    else closeAudioLink();
-  }
-  document.querySelectorAll('#audioChips .chip').forEach(function(c){
-    c.addEventListener('click', function(){ setAudioOut(c.dataset.audio); });
-  });
-  $('#audioTest').addEventListener('click', function(){
-    unlockAudio();
-    if(!('speechSynthesis' in window)){ toast('La synthèse vocale n\'est pas disponible dans ce navigateur.'); return; }
-    speak('Test du son. Dans 500 mètres, tournez à droite.', true, true);
-    toast(audioOut==='car' ? '🔊 Test en cours : le son doit sortir par l\'autoradio s\'il est connecté.'
-                           : '🔊 Test en cours.', 3500);
-  });
 
   // ---------- Signal sonore d'alerte (synthétisé, aucun fichier requis) ----------
   var audioCtx=null;
@@ -2853,7 +2789,6 @@
   $('#startNav').addEventListener('click', startNav);
   $('#navQuit').addEventListener('click', stopNav);
   syncThemeBtns();
-  setAudioOut(audioOut);
   $('#navVoice').addEventListener('click', function(){
     voiceOn=!voiceOn; this.classList.toggle('off',!voiceOn);
     this.textContent=voiceOn?'🔊':'🔇';
@@ -2861,39 +2796,17 @@
   });
 
   // ---------- Caméra de navigation ----------
-  // Carte orientée dans le sens de marche (bearing = cap), légèrement inclinée
-  // comme sur un GPS, véhicule placé aux deux tiers bas de l'écran pour voir
-  // loin devant. MapLibre fait tourner la carte entière : les marqueurs, le
-  // tracé et les noms de rues restent droits et à leur place.
+  // Carte orientée dans le sens de marche, légèrement inclinée comme sur un GPS,
+  // véhicule placé aux deux tiers bas de l'écran pour voir loin devant.
   var NAV_PITCH = 45;            // inclinaison en degrés (0 = vue de dessus)
   var NAV_PUCK  = 0.68;          // position verticale du véhicule (part de la hauteur)
-  var navHeading = null;         // dernier cap connu (degrés, 0 = nord)
-  var trimPrev = null;           // point d'effacement du tracé (position GPS précédente)
+  var navHeading = null;         // dernier cap GPS connu (degrés, 0 = nord)
 
   function navPadding(){
     var h = map.getContainer().clientHeight;
     // Le centre de la zone utile tombe à NAV_PUCK de la hauteur de l'écran.
     return { top: Math.round(h*(2*NAV_PUCK-1)), bottom:0, left:0, right:0 };
   }
-  // Un seul mouvement de caméra par position : centre, cap, inclinaison et zoom
-  // ensemble, sans animations concurrentes. Durée proche de l'intervalle GPS
-  // (~1 s) et progression linéaire : la carte glisse sans à-coups.
-  function panFollow(here){
-    map.easeTo({
-      center:[here.lng, here.lat],
-      bearing: navHeading!=null ? navHeading : map.getBearing(),
-      pitch: NAV_PITCH,
-      zoom: lastAutoZoom!=null ? lastAutoZoom : map.getZoom(),
-      padding: navPadding(),
-      duration: 900, easing:function(t){ return t; }
-    });
-  }
-  // Pendant le suivi, le repère du véhicule colle au point focal de la caméra :
-  // il glisse avec elle entre deux positions GPS au lieu de sauter en avant
-  // puis d'attendre que la carte le rattrape.
-  map.on('move', function(){
-    if(navActive && following && navMarker) navMarker.setLngLat(map.getCenter());
-  });
 
   // Cap fourni par le GPS ; à défaut (arrêt, certains téléphones), déduit du
   // déplacement depuis la position précédente, s'il est assez net.
@@ -2902,6 +2815,163 @@
     if(hd!=null && !isNaN(hd) && hd>=0) return hd;   // certains iPhone renvoient -1 à l'arrêt
     if(navLast && distM(navLast, here) > 8) return bearingTo(navLast, here);
     return null;
+  }
+
+  // ---------- Position calée sur la route ----------
+  // Le GPS d'un téléphone se trompe couramment de 5 à 15 m : affichée telle
+  // quelle, la position flotte à côté de la route. Tant qu'on suit l'itinéraire,
+  // on l'affiche donc sur le tracé, au point le plus proche, comme le font les
+  // GPS. Au-delà de SNAP_MAX, c'est qu'on le quitte : on montre la position brute.
+  var SNAP_MAX = 35;             // m
+  var matchAlong = null;         // progression (m depuis le départ) de la dernière position calée
+
+  // Recherche du point du tracé correspondant à la position GPS. On cherche
+  // d'abord autour de la progression attendue (un peu en arrière, et en avant
+  // selon la vitesse) : cela évite de s'accrocher à un autre passage du trajet
+  // qui serait proche à vol d'oiseau (épingle, voie d'en face, boucle).
+  function matchRoute(lat, lng, ahead){
+    if(!routeXY || !routeXY.cum) return null;
+    var last = routeXY.p.length-1, r = null;
+    if(matchAlong!=null){
+      var i0 = Math.max(1, idxAtAlong(matchAlong-60));
+      var i1 = Math.min(last, idxAtAlong(matchAlong+ahead)+1);
+      r = nearestOn(routeXY, lat, lng, i0, i1);
+    }
+    if(!r || r.d > SNAP_MAX){
+      var r2 = nearestOn(routeXY, lat, lng, navIdx-40, navIdx+400);   // recherche large, comme avant
+      if(r2 && (!r || r2.d < r.d)) r = r2;
+    }
+    return r;
+  }
+
+  // Point du tracé situé à `a` mètres du départ ; i = fin du segment qui le porte.
+  function pointAtAlong(a){
+    var c=routeXY.cum, p=routeXY.p, n=c.length, k=routeXY.k;
+    if(a<=0) return { lat:p[0][1]/110540, lng:p[0][0]/k, i:1 };
+    if(a>=c[n-1]) return { lat:p[n-1][1]/110540, lng:p[n-1][0]/k, i:n-1 };
+    var i=Math.max(1, idxAtAlong(a));
+    var seg=c[i]-c[i-1], t= seg>0 ? (a-c[i-1])/seg : 0;
+    return { lat:(p[i-1][1]+(p[i][1]-p[i-1][1])*t)/110540,
+             lng:(p[i-1][0]+(p[i][0]-p[i-1][0])*t)/k, i:i };
+  }
+  // Direction de la route à hauteur de `a`, prise un peu en avant : la carte
+  // commence à tourner juste avant un virage au lieu de pivoter d'un coup.
+  var LOOK_AHEAD = 30;           // m
+  function routeBearingAt(a){
+    var total=routeXY.cum[routeXY.cum.length-1];
+    var a0=Math.min(a, total-LOOK_AHEAD), a1=Math.min(total, a0+LOOK_AHEAD);
+    if(a1-a0 < 1) return null;
+    return bearingTo(pointAtAlong(Math.max(0,a0)), pointAtAlong(a1));
+  }
+
+  // ---------- Animation du véhicule, image par image ----------
+  // Entre deux positions GPS (≈ 1 s), le repère avance le long de la route, et
+  // non en ligne droite : il ne coupe plus les virages. La caméra le suit à
+  // chaque image, et le tracé s'efface exactement sous lui.
+  var anim = null;               // mouvement en cours
+  var shown = null;              // position affichée {lat,lng,along}
+  var dispBearing = null;        // cap affiché (lissé)
+  var camZoom = null;            // zoom affiché (lissé)
+  var camHoldUntil = 0;          // la caméra laisse finir un mouvement animé (départ, recentrage)
+  var rafId = null, lastFrameT = 0, lastFixT = 0, lastNearT = 0, lastCamKey = '', lastTrimAlong = -1;
+  var NEAR_CHUNK = 60;           // nombre de sommets du morceau de tracé proche
+  var farFrom = -1;              // indice où commence le morceau lointain affiché
+
+  function angDiff(a, b){ var d=((b-a)%360+540)%360-180; return d; }
+
+  function setVehicleTarget(tg, dt, v){
+    var now = performance.now();
+    if(!navMarker) navMarker = navDotMarker().setLngLat([tg.lng, tg.lat]).addTo(map);
+    var cur = shown;
+    if(!cur || !dt){                       // première position : on s'y place directement
+      anim = { mode:(tg.along!=null?'route':'free'), a0:tg.along, a1:tg.along,
+               p0:tg, p1:tg, t0:now, dur:0, v:0, endAlong:tg.along };
+      return;
+    }
+    if(tg.along!=null && cur.along!=null){
+      var a0=cur.along, a1=tg.along, vv=(v!=null && v>2) ? v : 0;
+      // Petit recul (bruit du GPS, arrêt) : on ne fait pas reculer le repère.
+      // Grand écart (demi-tour, longue perte du signal) : on s'y place directement.
+      if(a1 < a0){ if(a0-a1 < 40){ a1=a0; vv=0; } else a0=a1; }
+      if(a1-a0 > 500) a0=a1;
+      anim = { mode:'route', a0:a0, a1:a1, t0:now, dur:dt, v:vv };
+    } else {
+      anim = { mode:'free', p0:{lat:cur.lat, lng:cur.lng}, p1:{lat:tg.lat, lng:tg.lng},
+               t0:now, dur:(distM(cur, tg) > 300 ? 0 : dt), endAlong:tg.along };
+    }
+  }
+
+  // Efface le tracé jusqu'au point `pt` (sur le tracé, d'indice de segment pt.i).
+  function trimAt(pt){
+    if(!routeLayer || !routeCoords) return;
+    var last=routeCoords.length-1;
+    var c=Math.min(last, (Math.floor(pt.i/NEAR_CHUNK)+1)*NEAR_CHUNK);
+    if(c !== farFrom){ farFrom=c; setRouteData(routeCoords.slice(c)); }   // rare : tous les NEAR_CHUNK sommets
+    setNearData([[pt.lat, pt.lng]].concat(routeCoords.slice(pt.i, c+1)));
+  }
+
+  function navFrame(now){
+    if(!navActive){ rafId=null; return; }
+    rafId = requestAnimationFrame(navFrame);
+    var fdt = lastFrameT ? Math.min(100, now-lastFrameT) : 16;
+    lastFrameT = now;
+    if(!anim) return;
+
+    // L'horodatage d'une image peut précéder de quelques ms le lancement du
+    // mouvement (position reçue pendant la préparation de l'image) : on borne à 0,
+    // sans quoi le repère reculerait d'un pas.
+    var el = Math.max(0, now-anim.t0), t = anim.dur>0 ? Math.min(1, el/anim.dur) : 1;
+    var pos, along=null, brg=null;
+    if(anim.mode==='route' && routeXY && routeXY.cum){
+      along = anim.a0 + (anim.a1-anim.a0)*t;
+      // Le point GPS suivant tarde : on continue à la vitesse connue (au plus 1,5 s)
+      // plutôt que de marquer un arrêt.
+      if(el > anim.dur && anim.v) along = anim.a1 + anim.v*Math.min(el-anim.dur, 1500)/1000;
+      along = Math.min(along, routeXY.cum[routeXY.cum.length-1]);
+      pos = pointAtAlong(along);
+      brg = routeBearingAt(along);
+    } else {
+      pos = { lat: anim.p0.lat+(anim.p1.lat-anim.p0.lat)*t, lng: anim.p0.lng+(anim.p1.lng-anim.p0.lng)*t };
+      if(t>=1 && anim.endAlong!=null) along = anim.endAlong;
+      brg = navHeading;
+    }
+    shown = { lat:pos.lat, lng:pos.lng, along:along };
+
+    // Cap lissé (constante de temps ~0,3 s) : ni à-coups, ni retard visible.
+    if(brg!=null){
+      if(dispBearing==null) dispBearing=brg;
+      else dispBearing = (dispBearing + angDiff(dispBearing, brg)*(1-Math.exp(-fdt/300)) + 360) % 360;
+    }
+    if(navMarker){
+      navMarker.setLngLat([pos.lng, pos.lat]);
+      navMarker.setRotation(dispBearing!=null ? dispBearing : 0);
+    }
+
+    if(following && now >= camHoldUntil){
+      var zt = lastAutoZoom!=null ? lastAutoZoom : 16;
+      if(camZoom==null) camZoom = map.getZoom();
+      camZoom += (zt-camZoom)*(1-Math.exp(-fdt/600));
+      // Rien n'a bougé (arrêt au feu) : on ne redessine pas la carte pour rien.
+      var key = pos.lat.toFixed(7)+','+pos.lng.toFixed(7)+','+(dispBearing||0).toFixed(1)+','+camZoom.toFixed(3);
+      if(key !== lastCamKey){ lastCamKey = key; map.jumpTo({ center:[pos.lng, pos.lat], bearing: dispBearing!=null ? dispBearing : map.getBearing(),
+                   pitch:NAV_PITCH, zoom:camZoom, padding:navPadding() }); }
+    } else lastCamKey = '';
+
+    // Effacement du parcouru, environ 30 fois par seconde : à 130 km/h, le tracé
+    // ne retarde jamais de plus d'un mètre et demi sur le véhicule.
+    if(along!=null && pos.i && now-lastNearT > 33 && Math.abs(along-lastTrimAlong) > 0.3){
+      lastNearT = now; lastTrimAlong = along;
+      trimAt(pos);
+    }
+  }
+  function startNavLoop(){
+    lastFrameT=0;
+    if(rafId==null) rafId=requestAnimationFrame(navFrame);
+  }
+  function stopNavLoop(){
+    if(rafId!=null){ cancelAnimationFrame(rafId); rafId=null; }
+    anim=null; shown=null; dispBearing=null; camZoom=null; matchAlong=null; lastFixT=0;
+    lastCamKey=''; lastTrimAlong=-1;
   }
 
   // ---------- Zoom automatique ----------
@@ -2937,10 +3007,8 @@
   }
   function applyAutoZoom(kmh, d, maneuverType){
     if(!following) return;
-    var z = autoZoomFor(kmh, d, maneuverType);
-    // Le nouveau zoom part dans le même mouvement de caméra que le centrage :
-    // relancer panFollow remplace le mouvement en cours au lieu de le contrarier.
-    if(z !== lastAutoZoom){ lastAutoZoom = z; if(navLast) panFollow(navLast); }
+    // La boucle d'animation rejoint ce zoom en douceur.
+    lastAutoZoom = autoZoomFor(kmh, d, maneuverType);
   }
 
   // Repère du véhicule : sa flèche suit le cap sur la carte (rotationAlignment
@@ -2958,7 +3026,8 @@
     navSteps=flattenSteps(lastRoute);
     prepareStepAlong();
     if(navSteps.length<2){ toast('Itinéraire trop court pour le guidage.'); return; }
-    navPtr=1; navIdx=1; offCount=0; trimPrev=null; lastStepDist=null;
+    navPtr=1; navIdx=1; offCount=0; lastStepDist=null;
+    stopNavLoop(); farFrom=-1;
     spokenFar={}; spokenNear={}; spokenWarn={};
     navActive=true; following=true; lastAutoZoom=null; zoomSpeedFilt=null;
 
@@ -2971,17 +3040,16 @@
     navLast=null;
     var c0={lat:routeCoords[0][0], lng:routeCoords[0][1]};
     navHeading=null;
-    for(var i=1;i<routeCoords.length;i++){
-      var ci={lat:routeCoords[i][0], lng:routeCoords[i][1]};
-      if(distM(c0, ci) > 15){ navHeading=bearingTo(c0, ci); break; }
-    }
+    var b0 = routeBearingAt(0);
+    camHoldUntil = performance.now() + 850;
     map.easeTo({ center:[c0.lng, c0.lat], zoom:16, pitch:NAV_PITCH,
-                 bearing: navHeading!=null ? navHeading : 0,
+                 bearing: b0!=null ? b0 : 0,
                  padding:navPadding(), duration:800 });
+    startNavLoop();
     requestWake();
     unlockAudio();
     if(navMarker){ navMarker.remove(); navMarker=null; }
-    speak('Navigation démarrée.', true);   // en mode Autoradio, ouvre aussi la liaison audio
+    speak('Navigation démarrée.', true);
     updateNavDisplay(null);
 
     // Surveillance du trafic : uniquement avec TomTom, qui seul voit le trafic.
@@ -2999,9 +3067,9 @@
     document.body.classList.remove('nav');
     $('#recenter').classList.remove('show');
     releaseWake();
-    closeAudioLink();
     if(navWatch!=null){ navigator.geolocation.clearWatch(navWatch); navWatch=null; }
     if(navMarker){ navMarker.remove(); navMarker=null; }
+    stopNavLoop();
     if('speechSynthesis' in window) window.speechSynthesis.cancel();
     if(altTimer){ clearInterval(altTimer); altTimer=null; }
     hideAltBanner();
@@ -3011,7 +3079,7 @@
     map.jumpTo({ bearing:0, pitch:0, padding:{ top:0, bottom:0, left:0, right:0 } });
     map.resize();
     // Le tracé a été effacé au fil de la route pendant le guidage : on le réaffiche en entier.
-    if(routeLayer && routeCoords) setRouteData(routeCoords);
+    if(routeLayer && routeCoords){ farFrom=-1; setNearData(null); setRouteData(routeCoords); }
     if(routeCoords) fitCoords(routeCoords);
     openSheet();
   }
@@ -3027,23 +3095,26 @@
 
     var hdg = headingFrom(pos, here);
     if(hdg!=null) navHeading = hdg;
-    if(!navMarker) navMarker = navDotMarker().setLngLat([lng, lat]).addTo(map);
-    else navMarker.setLngLat([lng, lat]);
-    navMarker.setRotation(navHeading!=null ? navHeading : 0);
+
+    // Intervalle depuis la position précédente : le repère mettra ce temps à
+    // rejoindre la nouvelle, pour un mouvement continu.
+    var tnow = performance.now();
+    var dt = lastFixT ? Math.min(2000, Math.max(250, tnow-lastFixT)) : 0;
+    lastFixT = tnow;
+    var vms = (sp!=null && !isNaN(sp) && sp>=0) ? sp : null;
+
+    // Calage sur le tracé, puis animation du repère vers ce point.
+    var near = matchRoute(lat, lng, Math.max(300, (vms!=null?vms:15)*(dt||1000)/1000*3 + 60));
+    var snapped = !!(near && near.d <= SNAP_MAX);
+    if(near && near.d <= 60) matchAlong = alongOf(near);
+    setVehicleTarget(snapped ? { lat:near.lat, lng:near.lng, along:matchAlong } : here, dt, vms);
     navLast=here;
-    if(following) panFollow(here);
 
     checkRestrictionsAhead(here);
 
-    // Hors itinéraire ? Recherche fenêtrée autour de la position précédente
-    // sur la polyligne : coût constant, même sur un trajet de 500 km.
-    var near = routeXY ? nearestOn(routeXY, lat, lng, navIdx-40, navIdx+400) : null;
+    // Hors itinéraire ?
     if(near){
       navIdx = near.i;
-      // On efface jusqu'à la position PRÉCÉDENTE : le repère glisse encore vers
-      // la nouvelle pendant ~1 s, le tracé doit donc commencer derrière lui.
-      if(trimPrev) trimRoute(trimPrev.pt, trimPrev.idx);
-      trimPrev = { pt:{lat:near.lat, lng:near.lng}, idx:navIdx };
       if(near.d>60){
         offCount++;
         // 2 positions consécutives plutôt que 3 : détecte la sortie d'itinéraire
@@ -3187,7 +3258,15 @@
     navIdx=1;
     clearRouteLayers();
     routeLayer = drawRoute(routeCoords);
-    navSteps=flattenSteps(rt); navPtr=1; trimPrev=null; lastStepDist=null;
+    navSteps=flattenSteps(rt); navPtr=1; lastStepDist=null;
+    // Nouveau tracé : la progression repart de zéro ; le repère rejoindra le
+    // nouveau tracé en ligne droite depuis là où il est affiché.
+    matchAlong=null;
+    if(shown){
+      shown.along=null;
+      anim={ mode:'free', p0:{lat:shown.lat,lng:shown.lng}, p1:{lat:shown.lat,lng:shown.lng},
+             t0:performance.now(), dur:0 };
+    }
     prepareStepAlong();
     spokenFar={}; spokenNear={}; spokenWarn={};
     routeWarnings=[]; warnLayer.clearLayers();

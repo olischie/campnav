@@ -576,7 +576,7 @@
       </div>
       <button class="btn" id="searchPoi">Chercher dans cette zone</button>
       <button class="btn ghost" id="clearPoi" style="display:none">Effacer les services de la carte</button>
-      <p class="hint">Données <b>OpenStreetMap</b> en direct. La recherche porte sur la carte visible, élargie à au moins 50 km × 50 km autour de son centre, et ramène jusqu'à 80 lieux par type de données interrogé ; la liste affiche les 120 plus proches du centre de la carte. La zone interrogée est tracée en pointillés bleus. Dézoomez la carte puis relancez pour chercher plus large ; au-delà d'environ 15 000 km², la recherche se limite d'elle-même à une zone centrale. Le site web du lieu est indiqué quand OpenStreetMap le connaît.<br>Cochez peu de catégories à la fois : chacune alourdit la requête, sauf celles qui partagent les mêmes données (les trois variantes d'aires, par exemple, n'en coûtent qu'une).</p>
+      <p class="hint">Données <b>OpenStreetMap</b> en direct. La recherche porte sur la carte visible, élargie à au moins 50 km × 50 km autour de son centre, et ramène jusqu'à 80 lieux par type de données interrogé ; la liste affiche les 120 plus proches du centre de la carte. La zone interrogée est tracée en pointillés bleus. Dézoomez la carte puis relancez pour chercher plus large ; au-delà d'environ 15 000 km², la recherche se limite d'elle-même à une zone centrale. Le site web du lieu est indiqué quand il est connu.<br>Avec une clé TomTom, les supermarchés, restaurants et sites touristiques viennent de <b>TomTom</b> (réponse rapide, téléphone et site web) ; les aires et services camping-car, d'<b>OpenStreetMap</b>.<br>Cochez peu de catégories à la fois : chacune alourdit la requête, sauf celles qui partagent les mêmes données (les trois variantes d'aires, par exemple, n'en coûtent qu'une).</p>
       <div id="poiList"></div>
     </div>
 
@@ -2279,6 +2279,93 @@
     return items;
   }
 
+  // ---------- Recherche OpenStreetMap (Overpass) pour une liste de catégories ----------
+  // Renvoie une promesse de résultats affichables (voir poiItems).
+  function overpassPois(cats, bb, signal){
+    var wanted={}; cats.forEach(function(c){ wanted[c]=true; });
+    // Une base par jeu de données OSM, et non une par catégorie : les trois
+    // variantes d'aires ne coûtent ainsi qu'une seule passe au serveur.
+    var set={};
+    cats.forEach(function(c){ set[POI[c].base]=true; });
+    Object.keys(set).forEach(function(bse){
+      (BASE_COVERS[bse]||[]).forEach(function(couvert){ delete set[couvert]; });
+    });
+    var bases=Object.keys(set).sort();
+
+    var hit=cacheGet(bases, bb);
+    if(hit) return Promise.resolve(poiItems(hit, wanted, bb));   // déjà en mémoire
+
+    // Un « out » par base : la limite s'applique à chacune, sinon une base
+    // prolifique (les parkings) mangerait tout le quota des autres.
+    // Zone plus vaste : on laisse au serveur plus de temps et plus de résultats.
+    var q='[out:json][timeout:45];';
+    bases.forEach(function(bse){
+      q += '(' + BASES[bse].map(function(sel){ return sel+'('+bb.join(',')+');'; }).join('') + ');out center 80;';
+    });
+    return overpassFetch(q, signal).then(function(d){
+      var els=d.elements||[];
+      cachePut(bases, bb, els);
+      return poiItems(els, wanted, bb);
+    });
+  }
+
+  // ---------- Recherche TomTom pour magasins, restaurants et sites touristiques ----------
+  // Bien plus rapide qu'Overpass pour ces lieux « grand public », et souvent
+  // plus complet (téléphone, site web). Les aires et services propres au
+  // camping-car restent sur OpenStreetMap, que TomTom connaît mal.
+  // Codes de catégories TomTom ; `tags` imite les étiquettes OSM, pour que
+  // l'affichage (libellés, site web) reste le même quelle que soit la source.
+  var TT_CATS = {
+    shop:    [ { code:7332, tags:{ shop:'supermarket' } } ],             // commerces d'alimentation
+    food:    [ { code:7315, tags:{ amenity:'restaurant' } } ],           // restaurants
+    tourism: [ { code:7376, tags:{ tourism:'attraction' } },             // sites touristiques importants
+               { code:7317, tags:{ tourism:'museum' } },                 // musées
+               { code:7337, tags:{ tourism:'viewpoint' } } ]             // points de vue
+  };
+  function tomtomPois(cats, bb, signal){
+    var cLat=(bb[0]+bb[2])/2, cLng=(bb[1]+bb[3])/2;
+    // Rayon : jusqu'au coin de la zone, plafonné à 50 km (maximum de TomTom).
+    var radius=Math.min(50000, Math.ceil(distM({lat:cLat,lng:cLng}, [bb[2],bb[3]])));
+    var jobs=[];
+    cats.forEach(function(cat){
+      TT_CATS[cat].forEach(function(def){
+        var url='https://api.tomtom.com/search/2/nearbySearch/.json?key='+encodeURIComponent(ttKey)+
+                '&lat='+cLat.toFixed(5)+'&lon='+cLng.toFixed(5)+'&radius='+radius+
+                '&limit=100&language=fr-FR&categorySet='+def.code;
+        jobs.push(fetchTimeout(url, null, 10000).then(function(r){
+          if(r.status===401 || r.status===403) throw new Error('tomtom-auth');
+          if(!r.ok) throw new Error('tomtom '+r.status);
+          return r.json();
+        }).then(function(d){
+          return (d.results||[]).map(function(res){
+            var poi=res.poi||{}, pos=res.position||{}, tags={};
+            for(var k in def.tags) tags[k]=def.tags[k];
+            tags.name = poi.name || '';
+            if(poi.url) tags.website = poi.url;
+            if(poi.phone) tags.phone = poi.phone;
+            if(res.address && res.address.freeformAddress) tags['addr:full'] = res.address.freeformAddress;
+            return { lat:pos.lat, lng:pos.lon, cat:cat, name:(poi.name||POI[cat].name), tags:tags };
+          });
+        }));
+      });
+    });
+    // Une catégorie en échec n'annule pas les autres ; tout en échec = échec.
+    return Promise.all(jobs.map(function(p){ return p.then(function(v){ return {ok:true, v:v}; }, function(e){ return {ok:false, e:e}; }); }))
+      .then(function(rs){
+        if(!rs.some(function(r){ return r.ok; })) throw (rs[0] && rs[0].e) || new Error('tomtom');
+        var out=[], seen={};
+        rs.forEach(function(r){ if(r.ok) r.v.forEach(function(it){
+          if(it.lat==null || it.lng==null) return;
+          if(it.lat<bb[0] || it.lat>bb[2] || it.lng<bb[1] || it.lng>bb[3]) return;
+          var k=it.name+'@'+it.lat.toFixed(4)+','+it.lng.toFixed(4);
+          if(seen[k]) return; seen[k]=true;
+          out.push(it);
+        }); });
+        return out;
+      });
+  }
+
+  var poiSeq=0;
   $('#searchPoi').addEventListener('click', function(){
     var cats=Object.keys(activeCats).filter(function(k){return activeCats[k];});
     if(!cats.length){ toast('Choisissez au moins une catégorie.'); return; }
@@ -2292,43 +2379,60 @@
     // reste disponible en rouvrant le panneau (poignée en bas).
     sheet.classList.remove('open');
 
-    var wanted={}; cats.forEach(function(c){ wanted[c]=true; });
-
-    // Une base par jeu de données OSM, et non une par catégorie : les trois
-    // variantes d'aires ne coûtent ainsi qu'une seule passe au serveur.
-    var set={};
-    cats.forEach(function(c){ set[POI[c].base]=true; });
-    Object.keys(set).forEach(function(bse){
-      (BASE_COVERS[bse]||[]).forEach(function(couvert){ delete set[couvert]; });
-    });
-    var bases=Object.keys(set).sort();
-
-    var hit=cacheGet(bases, bb);
-    if(hit){ renderPois(poiItems(hit, wanted, bb), reduced); return; }  // déjà en mémoire
-
-    toast('<span class="spin"></span>Recherche des services…'+
-      (reduced?' (zone trop vaste : limitée au cadre bleu)':''),0);
-    // Un « out » par base : la limite s'applique à chacune, sinon une base
-    // prolifique (les parkings) mangerait tout le quota des autres.
-    // Zone plus vaste : on laisse au serveur plus de temps et plus de résultats.
-    var q='[out:json][timeout:45];';
-    bases.forEach(function(bse){
-      q += '(' + BASES[bse].map(function(sel){ return sel+'('+bb.join(',')+');'; }).join('') + ');out center 80;';
-    });
+    // Répartition : avec une clé TomTom, magasins, restaurants et sites
+    // touristiques passent par TomTom ; tout le reste par OpenStreetMap.
+    var ttCats = ttKey ? cats.filter(function(c){ return TT_CATS[c]; }) : [];
+    var ovCats = cats.filter(function(c){ return ttCats.indexOf(c)<0; });
 
     if(poiAbort) poiAbort.abort();
     poiAbort = ('AbortController' in window) ? new AbortController() : null;
-    overpassFetch(q, poiAbort ? poiAbort.signal : undefined)
-      .then(function(d){
-        hideToast();
-        var els=d.elements||[];
-        cachePut(bases, bb, els);
-        renderPois(poiItems(els, wanted, bb), reduced);
-      })
-      .catch(function(e){
+    var signal = poiAbort ? poiAbort.signal : undefined;
+    var seq = ++poiSeq, pending = 0, res = { tt:[], ov:[] }, failed = { tt:false, ov:false };
+
+    toast('<span class="spin"></span>Recherche des services…'+
+      (reduced?' (zone trop vaste : limitée au cadre bleu)':''),0);
+
+    function settle(){
+      if(seq!==poiSeq) return;
+      pending--;
+      var items=res.tt.concat(res.ov), final=(pending===0);
+      if(final && !items.length && (failed.tt || failed.ov)){
+        renderPois([], reduced, true);
+        toast('Service de recherche indisponible. Réessayez dans un instant.');
+        return;
+      }
+      renderPois(items, reduced, final);
+      if(!final){
+        if(items.length) toast('<span class="spin"></span>'+items.length+' résultat(s) — recherche des aires et services camping-car en cours…', 0);
+        return;
+      }
+      if(failed.ov && ovCats.length)
+        toast(items.length+' résultat(s). Aires et services camping-car indisponibles pour le moment (OpenStreetMap ne répond pas).', 5000);
+    }
+    function runOverpass(list, key){
+      pending++;
+      overpassPois(list, bb, signal).then(function(items){
+        res[key]=res[key].concat(items);
+      }, function(e){
+        if(e && e.name==='AbortError'){ pending=-999; return; }
+        failed[key]=true;
+      }).then(settle);
+    }
+
+    if(ovCats.length) runOverpass(ovCats, 'ov');
+    if(ttCats.length){
+      pending++;
+      tomtomPois(ttCats, bb, signal).then(function(items){
+        res.tt=items;
+        settle();
+      }, function(e){
         if(e && e.name==='AbortError') return;
-        hideToast(); toast('Service de recherche indisponible. Réessayez dans un instant.');
+        // TomTom indisponible (quota, clé, réseau) : ces catégories repassent par OpenStreetMap.
+        if(seq!==poiSeq) return;
+        runOverpass(ttCats, 'tt');
+        settle();
       });
+    }
   });
 
   // Ordre volontaire, du plus spécifique au plus générique. `wanted` restreint
@@ -2402,6 +2506,7 @@
     if(t.maxstay) m.push('⏱ max '+t.maxstay);
     if(t.maxheight) m.push('⚠ h. max '+t.maxheight+' m');
     if(t.capacity) m.push(t.capacity+' pl.');
+    if(t['addr:full']) m.push(t['addr:full']);
     return m.concat(off);
   }
   function subLabel(cat,t){
@@ -2435,9 +2540,15 @@
     return u.replace(/^https?:\/\//i,'').replace(/^www\./i,'').split(/[\/?#]/)[0];
   }
 
-  function renderPois(items, reduced){
+  // `final` : faux quand une des deux sources (TomTom, OpenStreetMap) n'a pas
+  // encore répondu. Chaque appel remplace l'affichage précédent (le cadre bleu reste).
+  function renderPois(items, reduced, final){
     var list=$('#poiList');
+    poiLayer.clearLayers();
+    list.innerHTML='';
     if(!items.length){
+      if(!final) return;
+      hideToast();
       // Inutile de conseiller d'élargir une zone déjà ramenée au maximum permis.
       list.innerHTML='<div class="empty">Rien trouvé dans cette zone. '+
         (reduced?'Déplacez la carte vers une autre zone et relancez.':'Élargissez la carte et relancez.')+'</div>';
@@ -2461,8 +2572,10 @@
         sheet.classList.remove('open');
       };
       var pop=document.createElement('div');
+      var tel = (it.tags && it.tags.phone) ? String(it.tags.phone).split(';')[0].trim() : '';
       pop.innerHTML='<b>'+p.emoji+' '+esc(it.name)+'</b><br>'+esc(lbl)+
         (site ? '<br>'+siteLink : '')+
+        (tel ? '<br><a href="tel:'+esc(tel.replace(/[^+\d]/g,''))+'">📞 '+esc(tel)+'</a>' : '')+
         '<br>'+
         '<button class="popgo">🎯 Définir comme destination</button>';
       var mk=poiMarker(p.emoji, p.color, it.lat, it.lng).setPopup(popupOf(pop));
@@ -2482,7 +2595,7 @@
       });
       list.appendChild(row);
     });
-    toast(items.length+' résultat(s). Touchez un marqueur pour en faire votre destination.',3500);
+    if(final) toast(items.length+' résultat(s). Touchez un marqueur pour en faire votre destination.',3500);
   }
 
   // ---------- Vehicle profile ----------

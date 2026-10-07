@@ -576,7 +576,7 @@
       </div>
       <button class="btn" id="searchPoi">Chercher dans cette zone</button>
       <button class="btn ghost" id="clearPoi" style="display:none">Effacer les services de la carte</button>
-      <p class="hint">Données <b>OpenStreetMap</b> en direct. La recherche porte sur la portion de carte visible, et ramène jusqu'à 40 lieux par type de données interrogé ; la liste affiche les 80 plus proches du centre de la carte. Déplacez / dézoomez la carte puis relancez pour élargir. Les services proches du centre s'affichent d'abord, le reste de la zone s'y ajoute ensuite. Si la vue est trop vaste, la recherche se limite d'elle-même à une zone centrale d'environ 4 000 km², tracée en pointillés bleus. Le site web du lieu est indiqué quand OpenStreetMap le connaît.<br>Cochez peu de catégories à la fois : chacune alourdit la requête, sauf celles qui partagent les mêmes données (les trois variantes d'aires, par exemple, n'en coûtent qu'une).</p>
+      <p class="hint">Données <b>OpenStreetMap</b> en direct. La recherche porte sur la portion de carte visible, et ramène jusqu'à 40 lieux par type de données interrogé ; la liste affiche les 80 plus proches du centre de la carte. Déplacez / dézoomez la carte puis relancez pour élargir. Si la vue est trop vaste, la recherche se limite d'elle-même à une zone centrale d'environ 7 000 km², tracée en pointillés bleus. Le site web du lieu est indiqué quand OpenStreetMap le connaît.<br>Cochez peu de catégories à la fois : chacune alourdit la requête, sauf celles qui partagent les mêmes données (les trois variantes d'aires, par exemple, n'en coûtent qu'une).</p>
       <div id="poiList"></div>
     </div>
 
@@ -2120,24 +2120,22 @@
   var BASES = {
     caravan: ['nw["tourism"="caravan_site"]'],
     camp:    ['nw["tourism"="camp_site"]'],
-    nature:  ['nw["tourism"="camp_site"]["backcountry"="yes"]',
-              'nw["tourism"="caravan_site"]["backcountry"="yes"]',
+    nature:  ['nw["tourism"~"^(camp_site|caravan_site)$"]["backcountry"="yes"]',
               'nw["tourism"="camp_site"]["camp_site"="basic"]'],
     dump:    ['nw["amenity"="sanitary_dump_station"]'],
-    water:   ['nw["amenity"="drinking_water"]', 'nw["amenity"="water_point"]',
+    water:   ['nw["amenity"~"^(drinking_water|water_point)$"]',
               'nw["man_made"="water_tap"]["drinking_water"="yes"]'],
-    rest:    ['nw["highway"="services"]', 'nw["highway"="rest_area"]'],
+    rest:    ['nw["highway"~"^(services|rest_area)$"]'],
     parkcc:  ['nw["amenity"="parking"]["motorhome"="yes"]',
               'nw["amenity"="parking"]["caravan"="yes"]'],
     park:    ['nw["amenity"="parking"]'],
     shop:    ['nw["shop"="supermarket"]'],
     toilets: ['nw["amenity"="toilets"]'],
     repair:  ['nw["shop"="caravan"]'],
-    food:    ['nw["amenity"="restaurant"]', 'nw["amenity"="fast_food"]'],
+    food:    ['nw["amenity"~"^(restaurant|fast_food)$"]'],
     // Les sites touristiques sans nom n'apportent rien : on les écarte côté serveur.
-    tourism: ['nw["tourism"="attraction"]["name"]', 'nw["tourism"="museum"]["name"]',
-              'nw["tourism"="viewpoint"]["name"]', 'nw["historic"="castle"]["name"]',
-              'nw["historic"="monument"]["name"]', 'nw["historic"="ruins"]["name"]']
+    tourism: ['nw["tourism"~"^(attraction|museum|viewpoint)$"]["name"]',
+              'nw["historic"~"^(castle|monument|ruins)$"]["name"]']
   };
   // Une base qui en contient une autre rend la seconde inutile.
   var BASE_COVERS = { park:['parkcc'], caravan:[], camp:[] };
@@ -2192,12 +2190,7 @@
   // Le seuil est en km² et non en degrés² : un degré de longitude vaut 79 km en
   // Bretagne mais 55 km en Laponie, et une limite en degrés offrirait au nord
   // une zone deux fois plus petite qu'au sud pour un même effort serveur.
-  var POI_MAX_AREA_KM2 = 4000; // ≈ 75 km × 55 km
-  // Première passe, sur une petite zone au centre de la vue : les serveurs
-  // Overpass y répondent en une ou deux secondes, là où la vue entière peut
-  // demander bien plus. Les résultats proches s'affichent donc tout de suite,
-  // le reste s'y ajoute quand la recherche sur toute la zone aboutit.
-  var POI_FIRST_KM2 = 150;     // ≈ 12 km × 12 km
+  var POI_MAX_AREA_KM2 = 7000; // ≈ 100 km × 70 km
 
   var KM_PER_DEG = 111.32;
   function bboxAreaKm2(bb){
@@ -2222,14 +2215,6 @@
     bb[0]=cLat-dLat*k; bb[2]=cLat+dLat*k;
     bb[1]=cLng-dLng*k; bb[3]=cLng+dLng*k;
     return true;
-  }
-
-  // Copie de `bb` réduite autour de son centre à environ `km2`, proportions gardées.
-  function scaledBox(bb, km2){
-    var b=bb.slice(), area=bboxAreaKm2(b);
-    if(area<=km2) return b;
-    var k=Math.sqrt(km2/area)/2, cLat=(b[0]+b[2])/2, cLng=(b[1]+b[3])/2, dLat=b[2]-b[0], dLng=b[3]-b[1];
-    return [cLat-dLat*k, cLng-dLng*k, cLat+dLat*k, cLng+dLng*k];
   }
 
   // Matérialise la zone réellement interrogée : sans ce cadre, l'absence de
@@ -2303,59 +2288,31 @@
     var bases=Object.keys(set).sort();
 
     var hit=cacheGet(bases, bb);
-    if(hit){ renderPois(poiItems(hit, wanted, bb), reduced, true); return; }  // déjà en mémoire
+    if(hit){ renderPois(poiItems(hit, wanted, bb), reduced); return; }  // déjà en mémoire
 
+    toast('<span class="spin"></span>Recherche des services…'+
+      (reduced?' (zone trop vaste : limitée au cadre bleu)':''),0);
     // Un « out » par base : la limite s'applique à chacune, sinon une base
     // prolifique (les parkings) mangerait tout le quota des autres.
-    // « qt » : sortie dans l'ordre de stockage du serveur, sans tri préalable
-    // (plus rapide ; l'appli trie elle-même par distance).
-    function query(box){
-      var q='[out:json][timeout:20];';
-      bases.forEach(function(bse){
-        q += '(' + BASES[bse].map(function(sel){ return sel+'('+box.join(',')+');'; }).join('') + ');out center qt 40;';
-      });
-      return q;
-    }
-
-    // Deux passes : petite zone centrale, puis toute la zone (si elle est
-    // nettement plus grande). Chaque passe passe par le cache.
-    var boxes=[];
-    if(bboxAreaKm2(bb) > POI_FIRST_KM2*2) boxes.push(scaledBox(bb, POI_FIRST_KM2));
-    boxes.push(bb);
+    var q='[out:json][timeout:20];';
+    bases.forEach(function(bse){
+      q += '(' + BASES[bse].map(function(sel){ return sel+'('+bb.join(',')+');'; }).join('') + ');out center 40;';
+    });
 
     if(poiAbort) poiAbort.abort();
     poiAbort = ('AbortController' in window) ? new AbortController() : null;
-    var signal = poiAbort ? poiAbort.signal : undefined, seq = ++poiSeq, all = {};
-    function merge(els){ (els||[]).forEach(function(el){ all[el.type+'/'+el.id] = el; }); }
-    function els(){ return Object.keys(all).map(function(k){ return all[k]; }); }
-
-    function pass(i){
-      var box=boxes[i], last=(i===boxes.length-1);
-      toast('<span class="spin"></span>'+(i===0 ? 'Recherche des services…' : 'Recherche élargie à toute la zone…')+
-        (reduced && last ? ' (zone trop vaste : limitée au cadre bleu)' : ''), 0);
-      var cached=cacheGet(bases, box);
-      var p = cached ? Promise.resolve({ elements:cached, _cached:true }) : overpassFetch(query(box), signal);
-      p.then(function(d){
-        if(seq!==poiSeq) return;
-        if(!d._cached) cachePut(bases, box, d.elements||[]);
-        merge(d.elements);
-        var items=poiItems(els(), wanted, bb);
-        if(last || items.length) renderPois(items, reduced, last);
-        if(last) return;
-        pass(i+1);
-      }).catch(function(e){
-        if(e && e.name==='AbortError') return;
-        if(seq!==poiSeq) return;
+    overpassFetch(q, poiAbort ? poiAbort.signal : undefined)
+      .then(function(d){
         hideToast();
-        if(Object.keys(all).length){
-          renderPois(poiItems(els(), wanted, bb), reduced, true);
-          toast('Recherche élargie indisponible : seuls les services proches du centre sont affichés.', 4500);
-        } else toast('Service de recherche indisponible. Réessayez dans un instant.');
+        var els=d.elements||[];
+        cachePut(bases, bb, els);
+        renderPois(poiItems(els, wanted, bb), reduced);
+      })
+      .catch(function(e){
+        if(e && e.name==='AbortError') return;
+        hideToast(); toast('Service de recherche indisponible. Réessayez dans un instant.');
       });
-    }
-    pass(0);
   });
-  var poiSeq=0;
 
   // Ordre volontaire, du plus spécifique au plus générique. `wanted` restreint
   // l'étiquetage aux catégories demandées — sinon un camping doté de toilettes
@@ -2461,18 +2418,12 @@
     return u.replace(/^https?:\/\//i,'').replace(/^www\./i,'').split(/[\/?#]/)[0];
   }
 
-  // `final` : faux après la première passe (petite zone), vrai après la passe
-  // complète. Chaque appel remplace l'affichage précédent (le cadre bleu reste).
-  function renderPois(items, reduced, final){
+  function renderPois(items, reduced){
     var list=$('#poiList');
-    poiLayer.clearLayers();
-    list.innerHTML='';
     if(!items.length){
-      if(!final) return;
       // Inutile de conseiller d'élargir une zone déjà ramenée au maximum permis.
       list.innerHTML='<div class="empty">Rien trouvé dans cette zone. '+
         (reduced?'Déplacez la carte vers une autre zone et relancez.':'Élargissez la carte et relancez.')+'</div>';
-      hideToast();
       return;
     }
     $('#clearPoi').style.display='block';
@@ -2514,8 +2465,7 @@
       });
       list.appendChild(row);
     });
-    if(final) toast(items.length+' résultat(s). Touchez un marqueur pour en faire votre destination.',3500);
-    else toast('<span class="spin"></span>'+items.length+' service(s) proche(s) affiché(s) — recherche élargie en cours…',0);
+    toast(items.length+' résultat(s). Touchez un marqueur pour en faire votre destination.',3500);
   }
 
   // ---------- Vehicle profile ----------

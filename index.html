@@ -1395,9 +1395,6 @@
       // L'onglet Paramètres s'ouvre toujours sur son menu, pas sur le dernier
       // sous-panneau consulté : on sait ainsi d'emblée ce qu'il contient.
       if(t.dataset.tab==='set') showSet(null);
-      // Retour sur l'onglet Trajet : les services recherchés quittent la carte
-      // (marqueurs, liste et cadre bleu), pour ne garder que l'itinéraire.
-      if(t.dataset.tab==='route') clearPois();
       openSheet();
     });
   });
@@ -2179,7 +2176,6 @@
 
   function clearPois(){
     if(poiAbort){ poiAbort.abort(); poiAbort=null; }
-    poiSeq++;                        // une recherche encore en cours n'affichera plus rien
     poiLayer.clearLayers();
     setAreaData(null);
     $('#poiList').innerHTML='';

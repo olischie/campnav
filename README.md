@@ -4,7 +4,7 @@ Application web de navigation pensée pour les camping-cars, **optimisée mobile
 
 ## ✨ Fonctionnalités
 
-- **Carte vectorielle** plein écran (**MapLibre GL JS** + fond **Protomaps**, noms en français), avec **choix du fond de carte** dans l'onglet Options : **Clair**, **Contraste** (niveaux de gris) et **Nuit** (fond sombre dont les routes ont été éclaircies pour rester bien visibles), plus un **curseur de luminosité** qui n'agit que sur le fond, jamais sur le tracé. Sans clé Protomaps, ou si la clé est refusée en route, l'appli bascule d'elle-même sur les tuiles **OpenStreetMap** classiques.
+- **Carte vectorielle** plein écran (**MapLibre GL JS**, fond **OpenFreeMap** gratuit et sans clé, noms en français), avec **choix du fond de carte** dans l'onglet Options : **Clair**, **Contraste** (niveaux de gris) et **Nuit** (fond sombre dont les routes ont été éclaircies pour rester bien visibles), plus un **curseur de luminosité** qui n'agit que sur le fond, jamais sur le tracé. Si OpenFreeMap ne répond pas, l'appli bascule d'elle-même sur **Protomaps** (clé facultative), puis sur les tuiles **OpenStreetMap** classiques.
 - **Recherche d'adresses et de lieux** (Nominatim / OpenStreetMap).
 - **Itinéraire** point à point : **un seul trajet**, équilibrant durée et distance, avec une option **« éviter les péages »**.
 - **Profil du véhicule** (hauteur, poids, largeur, longueur) utilisé de deux façons :
@@ -36,13 +36,23 @@ L'appli est une **PWA** : installable et utilisable hors-ligne, sans passer par 
 
 **Sur Android (Chrome)** : menu ⋮ → **Installer l'application** (ou la bannière proposée).
 
-**Mode hors-ligne** : un *service worker* met en cache la coquille de l'appli, les **tuiles de carte déjà consultées** et les polices du fond Protomaps. Les zones que vous avez parcourues restent affichables sans réseau, noms de rues compris. En revanche, la recherche d'adresses, le calcul d'itinéraire, les POI et le trafic nécessitent une connexion.
+**Mode hors-ligne** : un *service worker* met en cache la coquille de l'appli, les **tuiles de carte déjà consultées** et les polices du fond de carte ; les styles OpenFreeMap sont gardés dans le navigateur pour un démarrage immédiat. Les zones que vous avez parcourues restent affichables sans réseau, noms de rues compris. En revanche, la recherche d'adresses, le calcul d'itinéraire, les POI et le trafic nécessitent une connexion.
 
 > ⚠️ Le mode hors-ligne et l'installation ne fonctionnent qu'en **HTTPS**, pas en ouverture locale `file://`.
 
-## 🗺️ Fond de carte (Protomaps)
+## 🗺️ Fond de carte
 
-Le fond vectoriel vient de [Protomaps](https://protomaps.com/). Créez une clé gratuite sur [protomaps.com/dashboard](https://protomaps.com/dashboard), puis collez-la dans l'onglet **Options**, sous « Clé Protomaps ». Sans clé, l'appli fonctionne quand même avec les tuiles OpenStreetMap.
+Trois fournisseurs, essayés dans cet ordre, comme les moteurs d'itinéraire :
+
+| Rang | Fournisseur | Type | Clé |
+|---|---|---|---|
+| 1 | **OpenFreeMap** | vectoriel | aucune |
+| 2 | **Protomaps** | vectoriel | facultative |
+| 3 | **OpenStreetMap** | images | aucune |
+
+L'appli ne descend d'un cran que sur une vraie panne (erreurs répétées du serveur, style introuvable), pas sur une simple coupure de réseau : hors ligne, les tuiles déjà vues restent affichées. Pour activer le secours Protomaps, créez une clé gratuite sur [protomaps.com/dashboard](https://protomaps.com/dashboard) et collez-la dans l'onglet **Options**, sous « Clé Protomaps ».
+
+OpenFreeMap est un projet bénévole, financé par des dons et sans garantie de service : c'est pour cela que les deux autres fournisseurs restent en réserve. Ses styles d'origine (Liberty pour Clair, Positron pour Contraste, Dark pour Nuit) sont adaptés par l'appli : noms en français, routes éclaircies la nuit, bâtiments à plat pour ne pas masquer le tracé en vue inclinée.
 
 ## 🔑 Moteurs d'itinéraire
 
@@ -93,7 +103,8 @@ Il n'est appelé que si au moins une dimension est renseignée : sans profil vé
 ## 🧰 Services & bibliothèques utilisés
 
 - [MapLibre GL JS](https://maplibre.org/) — carte vectorielle (rotation, inclinaison)
-- [Protomaps](https://protomaps.com/) — tuiles vectorielles et styles du fond de carte
+- [OpenFreeMap](https://openfreemap.org/) — fond de carte vectoriel par défaut (styles et tuiles OpenMapTiles)
+- [Protomaps](https://protomaps.com/) — fond de carte vectoriel de secours
 - [OpenStreetMap](https://www.openstreetmap.org/) — données cartographiques, et tuiles du fond de secours
 - [Nominatim](https://nominatim.org/) — géocodage
 - [Openrouteservice](https://openrouteservice.org/) — itinéraire poids-lourd libre (repli)

@@ -3,8 +3,8 @@
 //  - coquille de l'appli (index + libs) : "network-first" puis cache (toujours à jour si en ligne)
 //  - tuiles, polices et pictogrammes de carte : "cache-first" (les zones déjà consultées restent dispo hors-ligne)
 
-const SHELL_CACHE = 'cc-shell-v10';
-const TILE_CACHE  = 'cc-tiles-v10';
+const SHELL_CACHE = 'cc-shell-v11';
+const TILE_CACHE  = 'cc-tiles-v11';
 
 const SHELL_ASSETS = [
   './',
@@ -20,10 +20,20 @@ const SHELL_ASSETS = [
 ];
 
 // Hôtes dont on met les ressources de carte en cache pour l'usage hors-ligne :
-// tuiles vectorielles Protomaps, polices et pictogrammes du style Protomaps
-// (sans eux, les noms de rues disparaissent hors réseau), et tuiles OpenStreetMap
-// du fond de secours.
-const TILE_HOSTS = ['api.protomaps.com', 'protomaps.github.io', 'tile.openstreetmap.org'];
+// tuiles, polices et pictogrammes d'OpenFreeMap (fond par défaut) et de
+// Protomaps (secours), et tuiles OpenStreetMap du dernier recours.
+const TILE_HOSTS = ['tiles.openfreemap.org', 'api.protomaps.com', 'protomaps.github.io', 'tile.openstreetmap.org'];
+
+// Chez OpenFreeMap, les styles et l'index des tuiles (TileJSON) changent
+// chaque semaine : ils passent par le réseau d'abord (avec repli sur le cache),
+// comme la coquille de l'appli. Seules les tuiles, polices et pictogrammes,
+// dont l'adresse change à chaque nouvelle version, sont servis depuis le cache.
+function isTileRequest(url) {
+  if (!TILE_HOSTS.some((h) => url.hostname.endsWith(h))) return false;
+  if (url.hostname === 'tiles.openfreemap.org' &&
+      (url.pathname.startsWith('/styles/') || /^\/planet(\/latest)?\/?$/.test(url.pathname))) return false;
+  return true;
+}
 
 // Services en ligne : jamais interceptés, jamais mis en cache.
 // (api.tomtom.com contient la clé d'API dans l'URL : elle ne doit rien laisser sur le disque.)
@@ -68,7 +78,7 @@ self.addEventListener('fetch', (e) => {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
 
   // Tuiles de carte : cache-first (limité pour ne pas saturer le stockage)
-  if (TILE_HOSTS.some((h) => url.hostname.endsWith(h))) {
+  if (isTileRequest(url)) {
     e.respondWith(
       caches.open(TILE_CACHE).then(async (cache) => {
         const hit = await cache.match(req);

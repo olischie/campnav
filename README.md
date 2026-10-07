@@ -5,7 +5,7 @@ Application web de navigation pensée pour les camping-cars, **optimisée mobile
 ## ✨ Fonctionnalités
 
 - **Carte vectorielle** plein écran (**MapLibre GL JS**, fond **OpenFreeMap** gratuit et sans clé, noms en français), avec **choix du fond de carte** dans l'onglet Options : **Clair**, **Contraste** (niveaux de gris) et **Nuit** (fond sombre dont les routes ont été éclaircies pour rester bien visibles), plus un **curseur de luminosité** qui n'agit que sur le fond, jamais sur le tracé. Si OpenFreeMap ne répond pas, l'appli bascule d'elle-même sur **Protomaps** (clé facultative), puis sur les tuiles **OpenStreetMap** classiques.
-- **Recherche d'adresses et de lieux** (Nominatim / OpenStreetMap).
+- **Recherche d'adresses et de lieux** (Nominatim / OpenStreetMap), **classée du plus proche au plus éloigné** de votre position (ou du centre de la carte si vous regardez ailleurs), distance affichée. La recherche porte d'abord sur les environs (≈ 30 km), puis s'élargit une seconde plus tard pour trouver aussi les villes et lieux lointains.
 - **Itinéraire** point à point : **un seul trajet**, équilibrant durée et distance, avec une option **« éviter les péages »**.
 - **Profil du véhicule** (hauteur, poids, largeur, longueur) utilisé de deux façons :
   - avec une **clé TomTom** ou **Openrouteservice**, l'itinéraire est **calculé pour votre gabarit** (les passages trop bas ou limités en tonnage sont évités par le moteur) ;

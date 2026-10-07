@@ -91,6 +91,9 @@
   .suggest .row:first-child{border-top:0;}
   .suggest .row:active{background:var(--panel-2);}
   .suggest .row small{color:var(--muted); display:block; margin-top:2px;}
+  .suggest{ max-height:58dvh; overflow-y:auto; }
+  .suggest .row .dist{ float:right; margin-left:8px; font-size:12px; color:var(--blue); font-weight:600; }
+  .suggest .row.note{ font-size:11px; color:var(--muted); padding:8px 14px; }
 
   /* ---------- Floating buttons ---------- */
   .fabs{
@@ -1381,10 +1384,31 @@
   });
 
   // ---------- Geocoding (Nominatim) ----------
-  function geocode(q){
-    var url = 'https://nominatim.openstreetmap.org/search?format=json&limit=5&addressdetails=1'
+  // `ref` : point autour duquel chercher. `bounded` : limité à une zone d'environ
+  // 30 km autour de lui ; sinon partout, mais en privilégiant cette zone.
+  var NEAR_DLAT = 0.27, NEAR_DLNG = 0.42;
+  function geocode(q, ref, bounded){
+    var url = 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1'
+            + '&limit=' + (bounded ? 15 : 8)
             + '&accept-language=fr&q=' + encodeURIComponent(q);
+    if(ref){
+      url += '&viewbox=' + [ref.lng-NEAR_DLNG, ref.lat+NEAR_DLAT, ref.lng+NEAR_DLNG, ref.lat-NEAR_DLAT]
+                           .map(function(v){ return v.toFixed(5); }).join(',');
+      if(bounded) url += '&bounded=1';
+    }
     return fetch(url, { headers:{ 'Accept':'application/json' } }).then(function(r){ return r.json(); });
+  }
+
+  // Dernière position connue de l'utilisateur (géolocalisation, navigation).
+  var lastPos = null;
+  // Point de référence des recherches : votre position, sauf si vous regardez
+  // la carte ailleurs (plus de 30 km de là, pour préparer une étape par exemple) :
+  // c'est alors le centre de la carte qui compte.
+  function searchRef(){
+    var c = map.getCenter(), center = { lat:c.lat, lng:c.lng };
+    var me = navLast || lastPos;
+    if(me && distM(me, center) <= 30000) return { lat:me.lat, lng:me.lng, me:true };
+    return center;
   }
   function reverse(lat,lng){
     var url='https://nominatim.openstreetmap.org/reverse?format=json&accept-language=fr&lat='+lat+'&lon='+lng;
@@ -1393,31 +1417,80 @@
     }).catch(function(){ return lat.toFixed(4)+', '+lng.toFixed(4); });
   }
 
+  // Recherche en deux temps, les résultats étant toujours classés du plus
+  // proche au plus éloigné :
+  // 1. autour de vous (≈ 30 km) : pour « Lidl » ou « boulangerie », les magasins
+  //    voisins, affichés tout de suite ;
+  // 2. une seconde plus tard (Nominatim n'accepte qu'une requête par seconde),
+  //    partout : pour « Liège » ou « Annecy », la ville elle-même, même si une
+  //    rue du même nom existe près de chez vous. La liste se complète alors.
+  var SUG_MAX = 8;
   function wireField(which){
-    var inp = $('#'+which+'Inp'), sug = $('#'+which+'Sug'), timer=null, inflight=0;
+    var inp = $('#'+which+'Inp'), sug = $('#'+which+'Sug'), timer=null, inflight=0, wideT=null;
+    var render = function(found, ref, final){
+      var list = Object.keys(found).map(function(k){ return found[k]; });
+      if(!list.length){
+        if(final){ sug.innerHTML='<div class="row">Aucun résultat</div>'; sug.classList.add('show'); }
+        return;
+      }
+      list.forEach(function(it){ it._d = distM(ref, [+it.lat, +it.lon]); });
+      list.sort(function(a,b){ return a._d-b._d; });
+      sug.innerHTML='';
+      list.slice(0, SUG_MAX).forEach(function(it){
+        var parts = String(it.display_name||'').split(',');
+        var row = document.createElement('div'); row.className='row';
+        row.innerHTML='<b>'+esc(parts[0])+'</b><span class="dist">'+fmtKm(it._d)+'</span>'+
+          '<small>'+esc(parts.slice(1,4).join(',').trim())+'</small>';
+        row.addEventListener('click', function(){
+          if(wideT){ clearTimeout(wideT); wideT=null; }
+          inflight++;                       // la recherche élargie, si elle arrive, est ignorée
+          setPoint(which, +it.lat, +it.lon, parts[0]);
+          inp.value = parts[0];
+          sug.classList.remove('show');
+        });
+        sug.appendChild(row);
+      });
+      var note=document.createElement('div'); note.className='row note';
+      note.textContent = 'Du plus proche au plus éloigné de ' + (ref.me ? 'votre position' : 'la zone affichée') +
+                         (final ? '' : ' — recherche élargie en cours…');
+      sug.appendChild(note);
+      sug.classList.add('show');
+    };
     var run = function(){
       var q = inp.value.trim();
       if(q.length<3){ sug.classList.remove('show'); return; }
-      var seq = ++inflight;
+      var seq = ++inflight, ref = searchRef(), found = {};
+      if(wideT){ clearTimeout(wideT); wideT=null; }
+      var add = function(list){
+        (list||[]).forEach(function(it){
+          var k = (it.osm_type && it.osm_id) ? it.osm_type+'/'+it.osm_id : (it.place_id || (it.lat+','+it.lon));
+          found[k] = it;
+        });
+      };
       toast('<span class="spin"></span>Recherche…',0);
-      geocode(q).then(function(list){
+      geocode(q, ref, true).then(function(list){
         if(seq!==inflight) return;              // réponse périmée
         hideToast();
-        if(!list || !list.length){ sug.innerHTML='<div class="row">Aucun résultat</div>'; sug.classList.add('show'); return; }
-        sug.innerHTML='';
-        list.forEach(function(it){
-          var parts = String(it.display_name||'').split(',');
-          var row = document.createElement('div'); row.className='row';
-          row.innerHTML='<b>'+esc(parts[0])+'</b><small>'+esc(parts.slice(1,4).join(',').trim())+'</small>';
-          row.addEventListener('click', function(){
-            setPoint(which, +it.lat, +it.lon, parts[0]);
-            inp.value = parts[0];
-            sug.classList.remove('show');
+        add(list);
+        render(found, ref, false);
+      }).catch(function(){}).then(function(){
+        if(seq!==inflight) return;
+        wideT = setTimeout(function(){
+          wideT = null;
+          if(seq!==inflight) return;
+          geocode(q, ref, false).then(function(list){
+            if(seq!==inflight) return;
+            hideToast();
+            add(list);
+            render(found, ref, true);
+          }).catch(function(){
+            if(seq!==inflight) return;
+            hideToast();
+            if(Object.keys(found).length) render(found, ref, true);
+            else toast('Recherche indisponible. Vérifiez la connexion et réessayez.');
           });
-          sug.appendChild(row);
-        });
-        sug.classList.add('show');
-      }).catch(function(){ if(seq===inflight){ hideToast(); toast('Recherche indisponible. Vérifiez la connexion et réessayez.'); } });
+        }, 1100);
+      });
     };
     // Nominatim demande au plus 1 requête/seconde : on temporise généreusement.
     inp.addEventListener('input', function(){
@@ -2395,7 +2468,7 @@
     toast('<span class="spin"></span>Localisation…',0);
     navigator.geolocation.getCurrentPosition(function(pos){
       hideToast();
-      var lat=pos.coords.latitude, lng=pos.coords.longitude;
+      var lat=pos.coords.latitude, lng=pos.coords.longitude; lastPos={lat:lat, lng:lng};
       setView(lat,lng,14);
       reverse(lat,lng).then(function(lbl){
         setPoint('from',lat,lng,lbl); $('#fromInp').value=lbl;
@@ -2782,7 +2855,7 @@
   if(navigator.geolocation){
     navigator.geolocation.getCurrentPosition(function(pos){
       if(pts.from) return;
-      var lat=pos.coords.latitude, lng=pos.coords.longitude;
+      var lat=pos.coords.latitude, lng=pos.coords.longitude; lastPos={lat:lat, lng:lng};
       reverse(lat,lng).then(function(lbl){
         if(pts.from) return;
         setPoint('from', lat, lng, lbl);
@@ -3221,7 +3294,7 @@
 
   function onNavPos(pos){
     if(!navActive) return;
-    var lat=pos.coords.latitude, lng=pos.coords.longitude;
+    var lat=pos.coords.latitude, lng=pos.coords.longitude; lastPos={lat:lat, lng:lng};
     var here={lat:lat, lng:lng};
 
     var sp = pos.coords.speed;

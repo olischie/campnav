@@ -4,7 +4,7 @@ Application web de navigation pensée pour les camping-cars, **optimisée mobile
 
 ## ✨ Fonctionnalités
 
-- **Carte vectorielle** plein écran (**MapLibre GL JS**, fond **OpenFreeMap** gratuit et sans clé, noms en français), avec **choix du fond de carte** dans l'onglet Options : **Clair**, **Contraste** (niveaux de gris) et **Nuit** (fond sombre dont les routes ont été éclaircies pour rester bien visibles), plus un **curseur de luminosité** qui n'agit que sur le fond, jamais sur le tracé. Si OpenFreeMap ne répond pas, l'appli bascule d'elle-même sur **Protomaps** (clé facultative), puis sur les tuiles **OpenStreetMap** classiques.
+- **Carte vectorielle** plein écran (**MapLibre GL JS**, fond **OpenFreeMap** gratuit et sans clé, noms en français), avec **choix du fond de carte** dans l'onglet Options : **Clair**, **Contraste** (niveaux de gris) et **Nuit** (fond sombre dont les routes ont été éclaircies pour rester bien visibles), plus un **curseur de luminosité** qui n'agit que sur le fond, jamais sur le tracé, et un interrupteur **Bâtiments en 3D** (éteint par défaut : en ville, à fort zoom, semi-transparents pour laisser deviner les rues). Si OpenFreeMap ne répond pas, l'appli bascule d'elle-même sur **Protomaps** (clé facultative), puis sur les tuiles **OpenStreetMap** classiques.
 - **Recherche d'adresses et de lieux** (Nominatim / OpenStreetMap), **classée du plus proche au plus éloigné** de votre position (ou du centre de la carte si vous regardez ailleurs), distance affichée. La recherche porte d'abord sur les environs (≈ 30 km), puis s'élargit une seconde plus tard pour trouver aussi les villes et lieux lointains.
 - **Itinéraire** point à point : **un seul trajet**, équilibrant durée et distance, avec une option **« éviter les péages »**.
 - **Profil du véhicule** (hauteur, poids, largeur, longueur) utilisé de deux façons :
@@ -52,7 +52,7 @@ Trois fournisseurs, essayés dans cet ordre, comme les moteurs d'itinéraire :
 
 L'appli ne descend d'un cran que sur une vraie panne (erreurs répétées du serveur, style introuvable), pas sur une simple coupure de réseau : hors ligne, les tuiles déjà vues restent affichées. Pour activer le secours Protomaps, créez une clé gratuite sur [protomaps.com/dashboard](https://protomaps.com/dashboard) et collez-la dans l'onglet **Options**, sous « Clé Protomaps ».
 
-OpenFreeMap est un projet bénévole, financé par des dons et sans garantie de service : c'est pour cela que les deux autres fournisseurs restent en réserve. Ses styles d'origine (Liberty pour Clair, Positron pour Contraste, Dark pour Nuit) sont adaptés par l'appli : noms en français, routes éclaircies la nuit, bâtiments à plat pour ne pas masquer le tracé en vue inclinée.
+OpenFreeMap est un projet bénévole, financé par des dons et sans garantie de service : c'est pour cela que les deux autres fournisseurs restent en réserve. Ses styles d'origine (Liberty pour Clair, Positron pour Contraste, Dark pour Nuit) sont adaptés par l'appli : noms en français, routes éclaircies la nuit, bâtiments à plat par défaut pour ne pas masquer les rues en vue inclinée (relief disponible avec l'interrupteur « Bâtiments en 3D »).
 
 ## 🔑 Moteurs d'itinéraire
 

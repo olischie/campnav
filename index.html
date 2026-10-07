@@ -640,6 +640,10 @@
 
       <label class="lb">Fond de carte</label>
       <div class="basegrid" id="baseChips"></div>
+      <div class="optrow" style="border-top:0">
+        <div class="lbl">🏙️ Bâtiments en 3D<small>En ville, à fort zoom, semi-transparents (fond OpenFreeMap)</small></div>
+        <button class="toggle" id="b3dChip" data-on="0" role="switch" aria-checked="false" aria-label="Bâtiments en 3D"></button>
+      </div>
 
       <label class="lb">Luminosité de la carte</label>
       <div class="slider-row">
@@ -936,14 +940,21 @@
     }
   }
 
+  // Bâtiments en 3D (interrupteur de l'onglet Options, éteint par défaut).
+  var buildings3d = false;
+  try{ buildings3d = localStorage.getItem('cc_3d')==='1'; }catch(e){}
+  var B3D_COLOR = { light:'hsl(35,8%,85%)', gray:'rgb(222,222,218)', dark:'#2c313b' };
+
   function adaptOfm(raw, b){
     var st = JSON.parse(JSON.stringify(raw));
+    var key = currentBase;
     st.layers = st.layers.map(function(l){
       if(l.layout && l.layout['text-field']!=null){
         var tf = JSON.stringify(l.layout['text-field']);
         if(/name/.test(tf)) l.layout['text-field'] = FR_NAME;
       }
-      // Bâtiments en relief : en vue inclinée, ils masqueraient le tracé. À plat.
+      // Bâtiments en relief d'origine : remis à plat. S'ils sont demandés, on
+      // ajoute plus bas les nôtres, plus discrets.
       if(l.type==='fill-extrusion'){
         var col = (l.paint && typeof l.paint['fill-extrusion-color']==='string') ? l.paint['fill-extrusion-color'] : '#d9d0c9';
         var f = { id:l.id, type:'fill', source:l.source, paint:{ 'fill-color':col, 'fill-opacity':0.7 } };
@@ -953,6 +964,30 @@
       if(b.dark) nightOfm(l);
       return l;
     });
+
+    if(buildings3d){
+      // Empreintes au sol gardées à tous les zooms (Liberty les arrête au zoom 14).
+      var lastB = -1;
+      st.layers.forEach(function(l, i){
+        if(l['source-layer']==='building' && l.type==='fill'){ delete l.maxzoom; lastB = i; }
+      });
+      if(lastB >= 0){
+        var src = st.layers[lastB].source;
+        // Relief seulement à fort zoom (en ville, à vitesse modérée) : les
+        // bâtiments « poussent » entre les zooms 15,5 et 16,5. Semi-transparents
+        // pour laisser deviner les rues qu'ils cachent en vue inclinée.
+        st.layers.splice(lastB+1, 0, {
+          id:'cc-building-3d', type:'fill-extrusion', source:src, 'source-layer':'building', minzoom:15.5,
+          filter:['!=', ['get','hide_3d'], true],
+          paint:{
+            'fill-extrusion-color': B3D_COLOR[key] || B3D_COLOR.light,
+            'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 15.5, 0, 16.5, ['coalesce', ['get','render_height'], 0]],
+            'fill-extrusion-base':   ['interpolate', ['linear'], ['zoom'], 15.5, 0, 16.5, ['coalesce', ['get','render_min_height'], 0]],
+            'fill-extrusion-opacity': 0.6
+          }
+        });
+      }
+    }
     return st;
   }
 
@@ -1851,6 +1886,26 @@
     $('#startNav').style.display='block';
     $('#clearRoute').style.display='block';
   }
+
+  // ---------- Interrupteur « bâtiments en 3D » ----------
+  (function(){
+    var t = $('#b3dChip');
+    function sync(){
+      t.classList.toggle('on', buildings3d);
+      t.dataset.on = buildings3d ? '1' : '0';
+      t.setAttribute('aria-checked', buildings3d ? 'true' : 'false');
+    }
+    sync();
+    t.addEventListener('click', function(){
+      buildings3d = !buildings3d;
+      sync();
+      try{ localStorage.setItem('cc_3d', buildings3d ? '1' : '0'); }catch(e){}
+      if(provider()==='ofm') applyTiles();
+      else toast('Les bâtiments en 3D ne s\'affichent qu\'avec le fond OpenFreeMap, actuellement indisponible.', 4000);
+      if(buildings3d && !navActive && map.getZoom() < 15.5)
+        toast('🏙️ Bâtiments en 3D activés : ils apparaissent en zoomant sur une ville.', 3500);
+    });
+  })();
 
   // ---------- Interrupteur « éviter les péages » ----------
   $('#tollChip').addEventListener('click', function(){

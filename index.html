@@ -1419,17 +1419,27 @@
   });
 
   // ---------- Geocoding (Nominatim) ----------
-  // `ref` : point autour duquel chercher. `bounded` : limité à une zone d'environ
-  // 30 km autour de lui ; sinon partout, mais en privilégiant cette zone.
-  var NEAR_DLAT = 0.27, NEAR_DLNG = 0.42;
-  function geocode(q, ref, bounded){
+  // Nominatim renvoie au plus 40 résultats, choisis par « importance » et non
+  // par distance : pour « Lidl », un rayon de 30 km en contient souvent bien
+  // plus, et le magasin le plus proche peut ne pas être dans le lot. On cherche
+  // donc par zones emboîtées, de la plus petite à la plus grande ; chaque zone
+  // est assez petite pour que tout ce qu'elle contient soit renvoyé.
+  // dlat/dlng : demi-côté de la zone, en degrés ; null = partout.
+  var SEARCH_STAGES = [
+    { dlat:0.045, dlng:0.07, limit:40 },   // ≈ 5 km autour de vous
+    { dlat:0.27,  dlng:0.42, limit:40 },   // ≈ 30 km
+    { dlat:null,  dlng:null, limit:10 }    // partout (villes, lieux lointains)
+  ];
+  function geocode(q, ref, stage){
     var url = 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1'
-            + '&limit=' + (bounded ? 15 : 8)
+            + '&limit=' + stage.limit
             + '&accept-language=fr&q=' + encodeURIComponent(q);
     if(ref){
-      url += '&viewbox=' + [ref.lng-NEAR_DLNG, ref.lat+NEAR_DLAT, ref.lng+NEAR_DLNG, ref.lat-NEAR_DLAT]
+      // Zone limitée, ou (recherche « partout ») simple préférence pour la grande zone.
+      var dlat = stage.dlat!=null ? stage.dlat : 0.27, dlng = stage.dlng!=null ? stage.dlng : 0.42;
+      url += '&viewbox=' + [ref.lng-dlng, ref.lat+dlat, ref.lng+dlng, ref.lat-dlat]
                            .map(function(v){ return v.toFixed(5); }).join(',');
-      if(bounded) url += '&bounded=1';
+      if(stage.dlat!=null) url += '&bounded=1';
     }
     return fetch(url, { headers:{ 'Accept':'application/json' } }).then(function(r){ return r.json(); });
   }
@@ -1452,14 +1462,14 @@
     }).catch(function(){ return lat.toFixed(4)+', '+lng.toFixed(4); });
   }
 
-  // Recherche en deux temps, les résultats étant toujours classés du plus
-  // proche au plus éloigné :
-  // 1. autour de vous (≈ 30 km) : pour « Lidl » ou « boulangerie », les magasins
-  //    voisins, affichés tout de suite ;
-  // 2. une seconde plus tard (Nominatim n'accepte qu'une requête par seconde),
-  //    partout : pour « Liège » ou « Annecy », la ville elle-même, même si une
-  //    rue du même nom existe près de chez vous. La liste se complète alors.
-  var SUG_MAX = 8;
+  // Recherche en trois temps (voir SEARCH_STAGES), une requête par seconde
+  // comme l'exige Nominatim, la liste se complétant à chaque étape et restant
+  // toujours classée du plus proche au plus éloigné :
+  // 1. ≈ 5 km : le magasin le plus proche, affiché tout de suite ;
+  // 2. ≈ 30 km : les autres magasins des environs ;
+  // 3. partout : pour « Liège » ou « Annecy », la ville elle-même, même si une
+  //    rue du même nom existe près de chez vous.
+  var SUG_MAX = 10;
   function wireField(which){
     var inp = $('#'+which+'Inp'), sug = $('#'+which+'Sug'), timer=null, inflight=0, wideT=null;
     var render = function(found, ref, final){
@@ -1503,29 +1513,29 @@
         });
       };
       toast('<span class="spin"></span>Recherche…',0);
-      geocode(q, ref, true).then(function(list){
-        if(seq!==inflight) return;              // réponse périmée
-        hideToast();
-        add(list);
-        render(found, ref, false);
-      }).catch(function(){}).then(function(){
-        if(seq!==inflight) return;
-        wideT = setTimeout(function(){
-          wideT = null;
+      var step = function(k){
+        var last = (k === SEARCH_STAGES.length-1);
+        geocode(q, ref, SEARCH_STAGES[k]).then(function(list){
+          if(seq!==inflight) return;            // réponse périmée
+          hideToast();
+          add(list);
+          render(found, ref, last);
+        }).catch(function(){
           if(seq!==inflight) return;
-          geocode(q, ref, false).then(function(list){
-            if(seq!==inflight) return;
-            hideToast();
-            add(list);
-            render(found, ref, true);
-          }).catch(function(){
-            if(seq!==inflight) return;
+          if(last){
             hideToast();
             if(Object.keys(found).length) render(found, ref, true);
             else toast('Recherche indisponible. Vérifiez la connexion et réessayez.');
-          });
-        }, 1100);
-      });
+          }
+        }).then(function(){
+          if(seq!==inflight || last) return;
+          wideT = setTimeout(function(){
+            wideT = null;
+            if(seq===inflight) step(k+1);
+          }, 1100);
+        });
+      };
+      step(0);
     };
     // Nominatim demande au plus 1 requête/seconde : on temporise généreusement.
     inp.addEventListener('input', function(){

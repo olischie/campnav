@@ -555,6 +555,8 @@
         <button class="chip" data-cat="camp">⛺ Campings</button>
         <button class="chip" data-cat="nature">🌲 Pleine nature</button>
         <button class="chip" data-cat="rest">🛣️ Aires de repos</button>
+        <button class="chip" data-cat="picnic">🧺 Aires de pique-nique</button>
+        <button class="chip" data-cat="viewpoint">🏞️ Points de vue</button>
         <button class="chip" data-cat="parkCC">🚐 Parking CC sans services</button>
         <button class="chip" data-cat="park">🅿 Parkings (tous)</button>
       </div>
@@ -565,7 +567,9 @@
       </div>
       <label class="lb">Ravitaillement &amp; entretien</label>
       <div class="chips" id="poiChips2">
+        <button class="chip" data-cat="fuel">⛽ Stations-service</button>
         <button class="chip" data-cat="shop">🛒 Supermarchés</button>
+        <button class="chip" data-cat="farm">🐄 Vente à la ferme</button>
         <button class="chip" data-cat="toilets">🚻 Toilettes</button>
         <button class="chip" data-cat="repair">🔧 Vente / réparation CC</button>
       </div>
@@ -573,10 +577,11 @@
       <div class="chips" id="poiChips3">
         <button class="chip" data-cat="food">🍽️ Restaurants</button>
         <button class="chip" data-cat="tourism">🏛️ Sites touristiques</button>
+        <button class="chip" data-cat="books">📚 Boîtes à livres</button>
       </div>
       <button class="btn" id="searchPoi">Chercher dans cette zone</button>
       <button class="btn ghost" id="clearPoi" style="display:none">Effacer les services de la carte</button>
-      <p class="hint">Données <b>OpenStreetMap</b> en direct. La recherche porte sur la carte visible, élargie à au moins 50 km × 50 km autour de son centre, et ramène jusqu'à 80 lieux par type de données interrogé ; la liste affiche les 120 plus proches du centre de la carte. La zone interrogée est tracée en pointillés bleus. Dézoomez la carte puis relancez pour chercher plus large ; au-delà d'environ 15 000 km², la recherche se limite d'elle-même à une zone centrale. Le site web du lieu est indiqué quand il est connu.<br>Avec une clé TomTom, les supermarchés, restaurants et sites touristiques viennent de <b>TomTom</b> (réponse rapide, téléphone et site web) ; les aires et services camping-car, d'<b>OpenStreetMap</b>.<br>Cochez peu de catégories à la fois : chacune alourdit la requête, sauf celles qui partagent les mêmes données (les trois variantes d'aires, par exemple, n'en coûtent qu'une).</p>
+      <p class="hint">Données <b>OpenStreetMap</b> en direct. La recherche porte sur la carte visible, élargie à au moins 50 km × 50 km autour de son centre, et ramène jusqu'à 80 lieux par type de données interrogé ; la liste affiche les 120 plus proches du centre de la carte. La zone interrogée est tracée en pointillés bleus. Dézoomez la carte puis relancez pour chercher plus large ; au-delà d'environ 15 000 km², la recherche se limite d'elle-même à une zone centrale. Le site web du lieu est indiqué quand il est connu. Les stations-service signalent le GPL et l'AdBlue quand OpenStreetMap les renseigne.<br>Avec une clé TomTom, les supermarchés, restaurants et sites touristiques viennent de <b>TomTom</b> (réponse rapide, téléphone et site web) ; les aires et services camping-car, d'<b>OpenStreetMap</b>.<br>Cochez peu de catégories à la fois : chacune alourdit la requête, sauf celles qui partagent les mêmes données (les trois variantes d'aires, par exemple, n'en coûtent qu'une).</p>
       <div id="poiList"></div>
     </div>
 
@@ -2135,7 +2140,16 @@
     food:    ['nw["amenity"~"^(restaurant|fast_food)$"]'],
     // Les sites touristiques sans nom n'apportent rien : on les écarte côté serveur.
     tourism: ['nw["tourism"~"^(attraction|museum|viewpoint)$"]["name"]',
-              'nw["historic"~"^(castle|monument|ruins)$"]["name"]']
+              'nw["historic"~"^(castle|monument|ruins)$"]["name"]'],
+    // Lieux repris de GoodSpots, qui puise lui aussi dans OpenStreetMap.
+    // Les simples tables (`leisure=picnic_table`) sont écartées : trop nombreuses,
+    // elles noieraient les vraies aires de pique-nique.
+    picnic:  ['nw["tourism"="picnic_site"]'],
+    // Points de vue nommés ou non : pour une halte, un belvédère anonyme vaut le détour.
+    viewpoint:['nw["tourism"="viewpoint"]'],
+    fuel:    ['nw["amenity"="fuel"]'],
+    farm:    ['nw["shop"="farm"]'],
+    books:   ['nw["amenity"~"^(public_bookcase|give_box)$"]']
   };
   // Une base qui en contient une autre rend la seconde inutile.
   var BASE_COVERS = { park:['parkcc'], caravan:[], camp:[] };
@@ -2158,7 +2172,12 @@
     toilets:{ emoji:'🚻', color:'#475569', name:'Toilettes publiques',           base:'toilets' },
     repair: { emoji:'🔧', color:'#b45309', name:'Vente / réparation camping-car',base:'repair' },
     food:   { emoji:'🍽️', color:'#e11d48', name:'Restaurant',                    base:'food' },
-    tourism:{ emoji:'🏛️', color:'#0d9488', name:'Site touristique',              base:'tourism' }
+    tourism:{ emoji:'🏛️', color:'#0d9488', name:'Site touristique',              base:'tourism' },
+    picnic: { emoji:'🧺', color:'#65a30d', name:'Aire de pique-nique',           base:'picnic' },
+    viewpoint:{emoji:'🏞️', color:'#0f766e', name:'Point de vue',                  base:'viewpoint' },
+    fuel:   { emoji:'⛽', color:'#dc2626', name:'Station-service',               base:'fuel' },
+    farm:   { emoji:'🐄', color:'#a16207', name:'Vente à la ferme',              base:'farm' },
+    books:  { emoji:'📚', color:'#9333ea', name:'Boîte à livres',                base:'books' }
   };
 
   // Les puces sont réparties en trois groupes visuels, mais alimentent une seule
@@ -2274,7 +2293,8 @@
       if(cat==='tourism' && !tags.name) return; // un site touristique sans nom n'apporte rien
       var id = el.type+'/'+el.id;
       if(seen[id]) return; seen[id]=true;
-      items.push({lat:lat,lng:lng,cat:cat,name:(tags.name||POI[cat].name),tags:tags});
+      // Enseigne à défaut de nom : beaucoup de stations-service n'ont que `brand`.
+      items.push({lat:lat,lng:lng,cat:cat,name:(tags.name||tags.brand||(tags.amenity==='give_box'?'Boîte à dons':POI[cat].name)),tags:tags});
     });
     return items;
   }
@@ -2458,6 +2478,12 @@
     ['toilets', function(t){ return t.amenity==='toilets'; }],
     ['shop',    function(t){ return t.shop==='supermarket'; }],
     ['food',    function(t){ return t.amenity==='restaurant' || t.amenity==='fast_food'; }],
+    ['fuel',    function(t){ return t.amenity==='fuel'; }],
+    ['farm',    function(t){ return t.shop==='farm'; }],
+    ['books',   function(t){ return t.amenity==='public_bookcase' || t.amenity==='give_box'; }],
+    ['picnic',  function(t){ return t.tourism==='picnic_site'; }],
+    // Avant « tourism » : quand les deux sont cochés, un belvédère reste un point de vue.
+    ['viewpoint',function(t){ return t.tourism==='viewpoint'; }],
     ['tourism', function(t){ return t.tourism==='attraction' || t.tourism==='museum' || t.tourism==='viewpoint'
                                  || t.historic==='castle' || t.historic==='monument' || t.historic==='ruins'; }],
     // Parking ouvert aux CC avant le parking générique.
@@ -2501,6 +2527,13 @@
     svc(t.toilets,                         '🚻 wc',      'wc');
     svc(t.shower,                          '🚿 douche',  'douche');
     svc(t.dog,                             '🐕 animaux', 'animaux');
+    // Stations-service : GPL et AdBlue, utiles en camping-car ; poids lourds = piste large.
+    if(t.amenity==='fuel'){
+      svc(t['fuel:lpg'],    '🔥 GPL',    'GPL');
+      svc(t['fuel:adblue'], 'AdBlue',    'AdBlue');
+      if(svcState(t.hgv)===true) m.push('🚛 accès PL');
+    }
+    if(t.opening_hours==='24/7') m.push('24 h/24');
     if(t.fee==='yes') m.push(t.charge ? '💶 '+t.charge : '💶 payant');
     else if(t.fee==='no') m.push('gratuit');
     if(t.maxstay) m.push('⏱ max '+t.maxstay);
@@ -2518,6 +2551,8 @@
            : t.historic==='monument' ? 'Monument'
            : t.historic==='ruins'    ? 'Ruines'
            : 'Site touristique';
+    } else if(cat==='books'){
+      base = t.amenity==='give_box' ? 'Boîte à dons' : 'Boîte à livres';
     } else {
       base = POI[cat].name;
     }

@@ -643,6 +643,18 @@
         <button class="toggle" id="tollChip" data-on="0" role="switch" aria-checked="false" aria-label="Éviter les péages"></button>
       </div>
 
+      <label class="lb">Guidage vocal</label>
+      <select class="inp" id="voiceSel" aria-label="Voix du guidage"></select>
+      <p class="hint" id="voiceNone" style="display:none">Aucune voix française n'est installée ou visible dans ce navigateur : la voix par défaut du téléphone est utilisée.</p>
+      <div class="slider-row" style="margin-top:10px">
+        <span class="ico">🐢</span>
+        <input type="range" id="rateRange" min="70" max="140" step="5" value="100" aria-label="Débit de la voix">
+        <span class="ico">🐇</span>
+        <output id="rateOut">100 %</output>
+      </div>
+      <button class="btn ghost" id="voiceTest">🔊 Écouter la voix</button>
+      <p>Les voix proposées sont celles installées sur ce téléphone. Celles marquées « Internet » se taisent hors réseau : préférez une voix locale pour la route.</p>
+
       <label class="lb">Fond de carte</label>
       <div class="basegrid" id="baseChips"></div>
       <div class="optrow" style="border-top:0">
@@ -1610,7 +1622,13 @@
       if(!d.routes || !d.routes.length) throw new Error('no route');
       var rt=d.routes[0];
       var steps=[];
-      (rt.legs||[]).forEach(function(leg){ (leg.steps||[]).forEach(function(s){ steps.push(s); }); });
+      (rt.legs||[]).forEach(function(leg){ (leg.steps||[]).forEach(function(s){
+        // Numéro de sortie et direction des panneaux, quand OSRM les connaît
+        // (« exits » : « 23 » ; « destinations » : « A 4: Namur, Liège »).
+        if(s.exits && s.maneuver) s.maneuver.exitNumber = String(s.exits).split(';')[0];
+        if(s.destinations) s.towards = String(s.destinations).replace(/^[^:]*:\s*/, '');
+        steps.push(s);
+      }); });
       // Tableau, comme tomtomFetch/orsFetch : fetchRoutes()/calcRoute() attendent
       // partout une liste d'alternatives, même réduite à une seule ici.
       return [{
@@ -1685,7 +1703,9 @@
           var mv=ttManeuver(ins.maneuver);
           mv.location=[ins.point.longitude, ins.point.latitude];
           if(ins.roundaboutExitNumber) mv.exit=ins.roundaboutExitNumber;
-          return { distance:dist, name:(ins.street||''), maneuver:mv };
+          if(ins.exitNumber) mv.exitNumber=String(ins.exitNumber);
+          // Direction indiquée sur les panneaux (« Namur », « Liège - Aachen »).
+          return { distance:dist, name:(ins.street||''), maneuver:mv, towards:(ins.signpostText||'') };
         });
         return {
           coords: coords,
@@ -3126,8 +3146,9 @@
       case 'continue': return {t:'Continuez '+(dir||'tout droit')+road_s, a:arrow(mod)};
       case 'merge': return {t:'Insérez-vous '+dir+road_s, a:arrow(mod)};
       case 'on ramp': return {t:'Prenez la bretelle '+dir+road_s, a:arrow(mod)};
-      case 'off ramp': return {t:'Prenez la sortie '+dir+road_s, a:arrow(mod)};
-      case 'fork': return {t:'À l\'embranchement, gardez '+dir+road_s, a:arrow(mod)};
+      case 'off ramp':
+        return {t:'Prenez la sortie'+(m.exitNumber?' '+m.exitNumber:'')+(step.towards?' — '+step.towards:(dir?' '+dir:'')+road_s), a:arrow(mod)};
+      case 'fork': return {t:'À l\'embranchement, gardez '+dir+(step.towards?' — '+step.towards:road_s), a:arrow(mod)};
       case 'end of road': return {t:'En bout de route, tournez '+dir+road_s, a:arrow(mod)};
       case 'roundabout':
       case 'rotary':
@@ -3144,14 +3165,67 @@
 
   // La voix est mise en file : une annonce n'écrase plus la précédente.
   // `urgent` (arrivée, alerte de gabarit) passe devant tout le reste.
-  function speak(txt, urgent){
-    if(!voiceOn || !('speechSynthesis' in window)) return;
+  // `force` : parle même si la voix est coupée (bouton « Écouter la voix »).
+  function speak(txt, urgent, force){
+    if((!voiceOn && !force) || !('speechSynthesis' in window)) return;
     try{
       if(urgent) window.speechSynthesis.cancel();
-      var u=new SpeechSynthesisUtterance(txt); u.lang='fr-FR'; u.rate=1.02;
+      var u=new SpeechSynthesisUtterance(txt); u.lang='fr-FR'; u.rate=voiceRate;
+      var v=pickedVoice();
+      if(v){ u.voice=v; u.lang=v.lang; }
       window.speechSynthesis.speak(u);
     }catch(e){}
   }
+
+  // ---------- Choix de la voix (onglet Options) ----------
+  // Les voix sont celles installées sur le téléphone ; certaines (Google, par
+  // exemple) passent par Internet et se taisent hors réseau.
+  var voiceURI = '', voiceRate = 1.0;
+  try{
+    voiceURI = localStorage.getItem('cc_voice') || '';
+    var vr = parseInt(localStorage.getItem('cc_rate')||'', 10);
+    if(vr>=70 && vr<=140) voiceRate = vr/100;
+  }catch(e){}
+  function frVoices(){
+    if(!('speechSynthesis' in window)) return [];
+    return (window.speechSynthesis.getVoices()||[]).filter(function(v){ return /^fr/i.test(v.lang||''); });
+  }
+  function pickedVoice(){
+    if(!voiceURI) return null;
+    var vs = frVoices();
+    for(var i=0;i<vs.length;i++) if(vs[i].voiceURI===voiceURI) return vs[i];
+    return null;
+  }
+  function fillVoiceList(){
+    var sel=$('#voiceSel'); if(!sel) return;
+    var vs=frVoices(), html='<option value="">Voix automatique du téléphone</option>';
+    vs.forEach(function(v){
+      html += '<option value="'+esc(v.voiceURI)+'"'+(v.voiceURI===voiceURI?' selected':'')+'>'+
+              esc(v.name)+' — '+esc(v.lang)+(v.localService===false?' (Internet)':'')+'</option>';
+    });
+    sel.innerHTML=html;
+    $('#voiceNone').style.display = vs.length ? 'none' : 'block';
+  }
+  (function wireVoice(){
+    var sel=$('#voiceSel'), r=$('#rateRange'), out=$('#rateOut');
+    if(!sel) return;
+    fillVoiceList();
+    if('speechSynthesis' in window){
+      try{ window.speechSynthesis.addEventListener('voiceschanged', fillVoiceList); }catch(e){}
+      setTimeout(fillVoiceList, 800);      // certains navigateurs ne préviennent pas
+    }
+    sel.addEventListener('change', function(){
+      voiceURI = sel.value;
+      try{ localStorage.setItem('cc_voice', voiceURI); }catch(e){}
+    });
+    r.value = Math.round(voiceRate*100); out.textContent = r.value+' %';
+    r.addEventListener('input', function(){ voiceRate = (parseInt(r.value,10)||100)/100; out.textContent = r.value+' %'; });
+    r.addEventListener('change', function(){ try{ localStorage.setItem('cc_rate', r.value); }catch(e){} });
+    $('#voiceTest').addEventListener('click', function(){
+      if(!('speechSynthesis' in window)){ toast('La synthèse vocale n\'est pas disponible dans ce navigateur.'); return; }
+      speak('Dans 800 mètres, au rond-point, prenez la deuxième sortie, direction Namur.', true, true);
+    });
+  })();
 
   // ---------- Signal sonore d'alerte (synthétisé, aucun fichier requis) ----------
   var audioCtx=null;
@@ -3465,8 +3539,8 @@
     if(navSteps.length<2){ toast('Itinéraire trop court pour le guidage.'); return; }
     navPtr=1; navIdx=1; offCount=0; lastStepDist=null;
     stopNavLoop(); farFrom=-1;
-    spokenFar={}; spokenNear={}; spokenWarn={};
-    navActive=true; following=true; lastAutoZoom=null; zoomSpeedFilt=null;
+    spokenFar={}; spokenNear={}; spokenWarn={}; contPending=true;
+    navActive=true; following=true; lastAutoZoom=null; zoomSpeedFilt=null; navSpeedMs=null;
 
     document.body.classList.add('nav');
     map.resize();
@@ -3539,6 +3613,8 @@
     var dt = lastFixT ? Math.min(2000, Math.max(250, tnow-lastFixT)) : 0;
     lastFixT = tnow;
     var vms = (sp!=null && !isNaN(sp) && sp>=0) ? sp : null;
+    if(vms!=null) navSpeedMs = (navSpeedMs==null) ? vms : navSpeedMs*0.6 + vms*0.4;
+    var ptrBefore = navPtr;
 
     // Calage sur le tracé, puis animation du repère vers ce point.
     var near = matchRoute(lat, lng, Math.max(300, (vms!=null?vms:15)*(dt||1000)/1000*3 + 60));
@@ -3606,52 +3682,155 @@
     var fr=maneuverFr(step);
     updateNavDisplay(d, fr, d + remainingFrom(navPtr));
 
-    announceStep(step, fr, d);
+    if(navPtr !== ptrBefore) contPending = true;   // un virage vient d'être passé
+    announceStep(step, d);
+    announceContinue(d);
   }
 
-  // Paliers d'annonce, en mètres. Ce sont des distances rondes : la voix dit
-  // « Dans 500 mètres », jamais « Dans 237 mètres ». Au plus 2 paliers d'anticipation
-  // + l'ordre « maintenant » au virage : jamais plus de 3 indications par manœuvre.
-  var ANNOUNCE_STAGES = [500, 200];
-  var ANNOUNCE_EXIT   = [1000, 300];
-  var TURN_NOW = 40;   // au-delà, on parle du virage ; en deçà, on l'ordonne
+  // ================= Annonces vocales =================
+  // Calées sur le temps plutôt que sur une distance fixe : environ 20 s avant le
+  // virage (28 s pour une sortie d'autoroute), puis 8 s avant, puis « maintenant »
+  // au virage. À 120 km/h, la première annonce tombe vers 700 m ; en ville, vers 300 m.
+  // Les distances dites restent rondes (« Dans 800 mètres », jamais « 763 »).
+  var ANN_FAR_S = 20, ANN_FAR_EXIT_S = 28, ANN_NEAR_S = 8, ANN_NOW_S = 2.5;
+  var CHAIN_GAP = 150;        // m : manœuvre suivante annoncée dans la même phrase (« …, puis… »)
+  var CONT_MIN = 1500;        // m : au-delà, « Continuez pendant… » après un virage
+  var navSpeedMs = null;      // vitesse lissée (m/s)
 
-  // « 1000 » se dit « un kilomètre », « 2000 » « deux kilomètres ».
+  function clampN(v, a, b){ return Math.max(a, Math.min(b, v)); }
+  // Arrondi « parlé » : par 50 m jusqu'à 200 m, par 100 m jusqu'à 1 km, puis par 500 m.
+  function niceDist(m){
+    if(m <= 200) return Math.max(50, Math.round(m/50)*50);
+    if(m <= 1000) return Math.round(m/100)*100;
+    return Math.round(m/500)*500;
+  }
+  // « 1000 » se dit « un kilomètre », « 1500 » « un kilomètre et demi », « 2000 » « deux kilomètres ».
   function spokenDistance(m){
     if(m >= 1000){
       var km = m/1000;
-      return (km===1 ? 'un kilomètre' : km+' kilomètres');
+      if(km===1) return 'un kilomètre';
+      if(km===1.5) return 'un kilomètre et demi';
+      return String(km).replace('.', ',')+' kilomètres';
     }
     return m+' mètres';
   }
+  function spokenKm(m){
+    var km = m < 10000 ? Math.round(m/500)/2 : Math.round(m/1000);
+    if(km===1) return 'un kilomètre';
+    if(km===1.5) return 'un kilomètre et demi';
+    return String(km).replace('.', ',')+' kilomètres';
+  }
 
-  function announceStep(step, fr, d){
-    if(!step || !fr) return;
-    var stages = (step.maneuver.type==='off ramp') ? ANNOUNCE_EXIT : ANNOUNCE_STAGES;
-    if(!spokenFar[navPtr]) spokenFar[navPtr] = {};
-    var done = spokenFar[navPtr];
+  function annStages(type){
+    var v = Math.max(5, navSpeedMs || 13.9);        // vitesse inconnue : ~50 km/h
+    var farS = (type==='off ramp' || type==='fork') ? ANN_FAR_EXIT_S : ANN_FAR_S;
+    var far = niceDist(clampN(v*farS, 150, 2000));
+    var nearD = niceDist(clampN(v*ANN_NEAR_S, 60, 600));
+    var now = clampN(v*ANN_NOW_S, 30, 70);
+    if(far < nearD*1.6) far = null;                  // trop proches : une seule annonce
+    return { far:far, near:nearD, now:now };
+  }
 
-    // Le virage est là : cet ordre prime sur tout palier resté en attente,
-    // sinon un saut de position ferait annoncer « dans 200 mètres » à 20 m du carrefour.
-    if(d <= TURN_NOW){
-      if(!spokenNear[navPtr]){
-        spokenNear[navPtr] = true;
-        stages.forEach(function(st){ done[st] = true; });
-        speak(fr.t.toLowerCase()+' maintenant');
+  // Noms de rues lus en entier, sans abréviations.
+  var ABBR = [
+    [/\bAv\.?(?=\s)/g,'avenue'], [/\bBd\.?(?=\s)/g,'boulevard'], [/\bBld\.?(?=\s)/g,'boulevard'],
+    [/\bBlvd\.?(?=\s)/g,'boulevard'], [/\bCh(ée|\.)(?=\s)/g,'chaussée'], [/\bChée\b/g,'chaussée'],
+    [/\bPl\.(?=\s)/g,'place'], [/\bR\.(?=\s)/g,'rue'], [/\bRte\.?(?=\s)/g,'route'],
+    [/\bImp\.(?=\s)/g,'impasse'], [/\bSq\.(?=\s)/g,'square'], [/\bAll\.(?=\s)/g,'allée'],
+    [/\bQu\.(?=\s)/g,'quai'], [/\bSte\.?(?=[\s-])/g,'Sainte'], [/\bSt\.?(?=[\s-])/g,'Saint'],
+    [/\bDr\.?(?=\s)/g,'docteur'], [/\bGén\.?(?=\s)/g,'général'], [/\bMal\.?(?=\s)/g,'maréchal']
+  ];
+  function spokenRoad(name){
+    var r = String(name||'').trim();
+    ABBR.forEach(function(a){ r = r.replace(a[0], a[1]); });
+    // « A 4: Namur » / « E411;A4 » : on garde ce qui se lit bien.
+    return r.replace(/\s*;\s*/g, ', ').replace(/\s*:\s*/g, ', ');
+  }
+  var ORDINAUX = ['', 'première', 'deuxième', 'troisième', 'quatrième', 'cinquième',
+                  'sixième', 'septième', 'huitième', 'neuvième', 'dixième'];
+  var DIR_SPOKEN = { 'left':'à gauche', 'right':'à droite', 'slight left':'légèrement à gauche',
+    'slight right':'légèrement à droite', 'sharp left':'franchement à gauche',
+    'sharp right':'franchement à droite', 'straight':'tout droit', 'uturn':'demi-tour' };
+
+  // Phrase d'action, sans la distance. `full` : avec la rue ou la direction.
+  function actionText(step, full){
+    var m = step.maneuver||{}, type = m.type||'', mod = m.modifier||'';
+    var dir = DIR_SPOKEN[mod] || '';
+    var road = full && step.name ? spokenRoad(step.name) : '';
+    var towards = full && step.towards ? spokenRoad(step.towards) : '';
+    var p, tail = road;
+    switch(type){
+      case 'turn':
+        p = (mod==='uturn') ? 'faites demi-tour' : 'tournez '+(dir||'');
+        break;
+      case 'new name': case 'continue':
+        p = (mod==='uturn') ? 'faites demi-tour' : 'continuez '+(dir||'tout droit'); break;
+      case 'merge': p = 'insérez-vous'+(dir?' '+dir:''); break;
+      case 'on ramp': p = 'prenez la bretelle'+(dir?' '+dir:''); tail = towards ? 'direction '+towards : road; break;
+      case 'off ramp':
+        p = 'prenez la sortie'+(m.exitNumber?' '+m.exitNumber:'')+(dir && !m.exitNumber?' '+dir:'');
+        tail = towards ? 'direction '+towards : road; break;
+      case 'fork': p = 'à l\'embranchement, restez '+(dir||'tout droit'); tail = towards ? 'direction '+towards : road; break;
+      case 'end of road': p = 'au bout de la route, tournez '+(dir||''); break;
+      case 'roundabout': case 'rotary': case 'roundabout turn':
+        var ex = +m.exit;
+        p = 'au rond-point, ' + (ex>0 && ex<ORDINAUX.length ? 'prenez la '+ORDINAUX[ex]+' sortie'
+                                 : (dir ? 'sortez '+dir : 'continuez'));
+        tail = towards ? 'direction '+towards : road; break;
+      case 'arrive': p = 'vous arriverez à destination'; tail = ''; break;
+      default: p = 'continuez '+(dir||'tout droit');
+    }
+    p = p.trim();
+    return full && tail ? p+', '+tail : p;
+  }
+  // Ajoute la manœuvre suivante si elle suit de près (« …, puis tournez à droite »).
+  function chainedText(k, full){
+    var step = navSteps[k], next = navSteps[k+1], t = actionText(step, full);
+    if(next && step.maneuver.type!=='arrive' && (step.distance||0) < CHAIN_GAP){
+      var nt = next.maneuver.type==='arrive' ? 'vous serez arrivé' : actionText(next, false);
+      t += ', puis ' + nt;
+      var a = spokenFar[k+1] || (spokenFar[k+1] = {});
+      a.far = true;                         // déjà annoncée : pas de « Dans 300 mètres » en double
+    }
+    return t;
+  }
+  function cap(t){ return t.charAt(0).toUpperCase()+t.slice(1); }
+
+  function announceStep(step, d){
+    if(!step) return;
+    var k = navPtr, a = spokenFar[k] || (spokenFar[k] = {});
+    var S = annStages(step.maneuver.type), arrive = step.maneuver.type==='arrive';
+    // Le virage est là : cet ordre prime sur tout palier resté en attente.
+    if(d <= S.now){
+      if(!a.now){
+        a.now = a.near = a.far = true;
+        if(!arrive) speak('Maintenant, '+chainedText(k, false)+'.');
       }
       return;
     }
-
     // On ne retient que le palier le plus proche déjà franchi : si le GPS saute
-    // de 900 m à 400 m, on annonce « 500 mètres » une seule fois, pas les deux.
-    var hit = null;
-    for(var i=0;i<stages.length;i++){
-      if(d <= stages[i] && !done[stages[i]]) hit = stages[i];
+    // de 900 m à 150 m, on n'annonce qu'une fois.
+    if(d <= S.near){
+      if(!a.near){ a.near = a.far = true; speak('Dans '+spokenDistance(niceDist(d))+', '+chainedText(k, true)+'.'); }
+      return;
     }
-    if(hit != null){
-      stages.forEach(function(st){ if(st >= hit) done[st] = true; });
-      speak('Dans '+spokenDistance(hit)+', '+fr.t.toLowerCase());
+    if(S.far && d <= S.far && !a.far){
+      a.far = true;
+      speak('Dans '+spokenDistance(niceDist(d))+', '+actionText(step, true)+'.');
     }
+  }
+
+  // Juste après un virage (ou au départ), si le prochain est loin : on le dit.
+  var contPending = true;
+  function announceContinue(d){
+    if(!contPending) return;
+    contPending = false;
+    if(d < CONT_MIN) return;
+    var cur = navSteps[navPtr-1], ref = cur && cur.name ? String(cur.name).trim() : '';
+    var num = /^(A|E|N|R|B|M|D)\s?\d+[a-z]?$/i.test(ref) ? ref.replace(/\s+/,'').toUpperCase() : '';
+    var t = num ? 'Suivez '+(/^[AE]/.test(num) ? 'l\'' : 'la ')+num+' pendant '+spokenKm(d)
+                : 'Continuez pendant '+spokenKm(d);
+    speak(t+'.');
   }
 
   // Distance restante après la manœuvre `ptr` (la distance jusqu'à elle est ajoutée par l'appelant)
@@ -3705,7 +3884,7 @@
              t0:performance.now(), dur:0 };
     }
     prepareStepAlong();
-    spokenFar={}; spokenNear={}; spokenWarn={};
+    spokenFar={}; spokenNear={}; spokenWarn={}; contPending=true;
     routeWarnings=[]; warnLayer.clearLayers();
     warnKey='';
     checkHeights(rt.coords);

@@ -1618,6 +1618,9 @@
     var c = pts.from.lng+','+pts.from.lat+';'+pts.to.lng+','+pts.to.lat;
     var url='https://router.project-osrm.org/route/v1/driving/'+c+
             '?overview=full&geometries=geojson&steps=true&alternatives=false';
+    // En roulant, le cap actuel oriente le départ : OSRM choisit la route prise
+    // dans ce sens, et non une rue parallèle ou la voie d'en face.
+    if(pts.from.heading!=null) url += '&bearings='+Math.round((pts.from.heading+360)%360)+',45;';
     return fetchTimeout(url, null, ms).then(function(r){return r.json();}).then(function(d){
       if(!d.routes || !d.routes.length) throw new Error('no route');
       var rt=d.routes[0];
@@ -1683,7 +1686,9 @@
             '&maxAlternatives=0&routeType=fastest'+
             '&traffic=true&travelMode='+v.mode+v.qs+
             (avoidTolls?'&avoid=tollRoads':'')+
-            '&instructionsType=coded&language=fr-FR';
+            '&instructionsType=coded&language=fr-FR'+
+            // Cap du véhicule au départ (même rôle que pour OSRM).
+            (o.heading!=null ? '&vehicleHeading='+Math.round((o.heading+360)%360) : '');
     return fetchTimeout(url, null, ms).then(function(r){
       if(r.status===401 || r.status===403) throw new Error('tomtom-auth');
       if(!r.ok) throw new Error('tomtom '+r.status);
@@ -2715,15 +2720,15 @@
   $('#locBtn').addEventListener('click', function(){
     if(!navigator.geolocation){ toast('Géolocalisation non disponible.'); return; }
     toast('<span class="spin"></span>Localisation…',0);
-    navigator.geolocation.getCurrentPosition(function(pos){
-      hideToast();
-      var lat=pos.coords.latitude, lng=pos.coords.longitude; lastPos={lat:lat, lng:lng};
-      setView(lat,lng,14);
-      reverse(lat,lng).then(function(lbl){
-        setPoint('from',lat,lng,lbl); $('#fromInp').value=lbl;
-      });
-    }, function(){ hideToast(); toast('Position indisponible. Autorisez la géolocalisation pour ce site.'); },
-    { enableHighAccuracy:true, timeout:8000 });
+    // Le bouton reprend la main sur le départ, même s'il avait été saisi.
+    if(pts.from) pts.from.auto = true;
+    var first = true;
+    locatePrecise(function(f, final){
+      if(first){ first=false; setView(f.lat, f.lng, 15); }
+      setAutoFrom(f, false);
+      if(final) toast('📍 Position trouvée (± '+Math.round(f.acc)+' m).', 2500);
+      else toast('<span class="spin"></span>Position à ± '+Math.round(f.acc)+' m — affinage en cours…', 0);
+    }, function(){ hideToast(); toast('Position indisponible. Autorisez la géolocalisation pour ce site.'); });
   });
 
   // ---------- Fond de carte ----------
@@ -3100,19 +3105,45 @@
   // Ouvre le panneau au premier chargement pour rendre les onglets visibles
   setTimeout(openSheet, 400);
 
-  // Départ = position actuelle par défaut
-  if(navigator.geolocation){
-    navigator.geolocation.getCurrentPosition(function(pos){
-      if(pts.from) return;
-      var lat=pos.coords.latitude, lng=pos.coords.longitude; lastPos={lat:lat, lng:lng};
-      reverse(lat,lng).then(function(lbl){
-        if(pts.from) return;
-        setPoint('from', lat, lng, lbl);
-        $('#fromInp').value = lbl;
-      });
-    }, function(){ /* refus ou indisponible : on laisse le champ vide */ },
-    { enableHighAccuracy:true, timeout:8000 });
+  // ---------- Position de départ précise ----------
+  // Le premier point fourni par le téléphone vient souvent du réseau (wifi,
+  // antennes) et peut être faux de 50 à 100 m : en ville, c'est la rue d'à
+  // côté, et l'itinéraire part alors d'une rue parallèle. On écoute donc le GPS
+  // jusqu'à 15 s et on déplace le départ chaque fois que la position s'affine
+  // nettement, jusqu'à une précision de 15 m.
+  function locatePrecise(onFix, onFail){
+    if(!navigator.geolocation){ if(onFail) onFail(); return; }
+    var best=null, done=false, wid=null, tm=null;
+    function stop(){ if(done) return; done=true; if(wid!=null) navigator.geolocation.clearWatch(wid); if(tm) clearTimeout(tm); }
+    tm=setTimeout(function(){ var b=best; stop(); if(b) onFix(b, true); else if(onFail) onFail(); }, 15000);
+    wid=navigator.geolocation.watchPosition(function(pos){
+      if(done) return;
+      var f={ lat:pos.coords.latitude, lng:pos.coords.longitude, acc:(pos.coords.accuracy||999) };
+      lastPos={ lat:f.lat, lng:f.lng };
+      var better = !best || f.acc < best.acc*0.7 || (f.acc <= best.acc && distM(best, f) > 10);
+      if(!better) return;
+      best=f;
+      var final = f.acc <= 15;
+      if(final) stop();
+      onFix(f, final);
+    }, function(){ if(!best){ stop(); if(onFail) onFail(); } },
+    { enableHighAccuracy:true, maximumAge:0, timeout:15000 });
   }
+  // Place (ou replace) le départ automatique ; un départ saisi à la main n'est jamais touché.
+  function setAutoFrom(f, center){
+    if(navActive || (pts.from && !pts.from.auto)) return;
+    if(pts.from && distM(pts.from, f) < 15){ pts.from.acc=f.acc; return; }
+    reverse(f.lat, f.lng).then(function(lbl){
+      if(navActive || (pts.from && !pts.from.auto)) return;
+      if(center && !pts.to) setView(f.lat, f.lng, 15);
+      setPoint('from', f.lat, f.lng, lbl);
+      pts.from.auto = true; pts.from.acc = f.acc;
+      $('#fromInp').value = lbl;
+    });
+  }
+
+  // Départ = position actuelle par défaut
+  locatePrecise(function(f){ setAutoFrom(f, false); }, function(){ /* refus ou indisponible : champ vide */ });
 
   // ================= Navigation guidée =================
   var wakeLock=null;
@@ -3333,7 +3364,17 @@
   // quelle, la position flotte à côté de la route. Tant qu'on suit l'itinéraire,
   // on l'affiche donc sur le tracé, au point le plus proche, comme le font les
   // GPS. Au-delà de SNAP_MAX, c'est qu'on le quitte : on montre la position brute.
-  var SNAP_MAX = 35;             // m
+  // Tolérance de calage, adaptée à chaque position selon la précision annoncée par
+  // le GPS : en ville, entre les façades, l'erreur atteint souvent 30 à 60 m.
+  var SNAP_MAX = 35;             // m, valeur courante (voir snapFor)
+  function snapFor(acc, headingOK){
+    var t = Math.max(35, Math.min(75, (acc||20)*1.3));
+    return headingOK ? Math.max(t, 60) : t;
+  }
+  // Cap fiable seulement en mouvement (sous ~10 km/h, le GPS le devine mal).
+  function movingHeading(){
+    return (navHeading!=null && navSpeedMs!=null && navSpeedMs > 3) ? navHeading : null;
+  }
   var matchAlong = null;         // progression (m depuis le départ) de la dernière position calée
 
   // Recherche du point du tracé correspondant à la position GPS. On cherche
@@ -3616,10 +3657,25 @@
     if(vms!=null) navSpeedMs = (navSpeedMs==null) ? vms : navSpeedMs*0.6 + vms*0.4;
     var ptrBefore = navPtr;
 
-    // Calage sur le tracé, puis animation du repère vers ce point.
+    // Précision annoncée par le GPS (rayon en mètres). Une position très floue
+    // (> 150 m : réception coupée, bâtiments) n'est pas utilisée : le repère
+    // continue sur sa lancée plutôt que de sauter dans une rue voisine.
+    var acc = (pos.coords.accuracy!=null && !isNaN(pos.coords.accuracy)) ? pos.coords.accuracy : 20;
+    if(acc > 150) return;
+
+    // Calage sur le tracé, puis animation du repère vers ce point. Le cap aide à
+    // départager deux rues parallèles : si le véhicule va dans le sens du tracé,
+    // on accepte un écart plus grand avant de le croire ailleurs.
+    SNAP_MAX = snapFor(acc, false);
     var near = matchRoute(lat, lng, Math.max(300, (vms!=null?vms:15)*(dt||1000)/1000*3 + 60));
+    var headingOK = false, mh = movingHeading();
+    if(near && mh!=null && routeXY && routeXY.cum){
+      var rb = routeBearingAt(alongOf(near));
+      if(rb!=null) headingOK = Math.abs(angDiff(rb, mh)) < 45;
+    }
+    SNAP_MAX = snapFor(acc, headingOK);
     var snapped = !!(near && near.d <= SNAP_MAX);
-    if(near && near.d <= 60) matchAlong = alongOf(near);
+    if(near && near.d <= Math.max(60, SNAP_MAX)) matchAlong = alongOf(near);
     setVehicleTarget(snapped ? { lat:near.lat, lng:near.lng, along:matchAlong } : here, dt, vms);
     navLast=here;
 
@@ -3628,13 +3684,16 @@
     // Hors itinéraire ?
     if(near){
       navIdx = near.i;
-      if(near.d>60){
+      // Hors itinéraire seulement si l'écart dépasse nettement l'imprécision du
+      // GPS, et sur plusieurs positions de suite (3 quand le GPS est flou, en
+      // ville surtout) : sans quoi une erreur de 40 m faisait recalculer depuis
+      // une rue parallèle.
+      var offMax = Math.max(60, acc*1.5) + (headingOK ? 30 : 0);
+      if(near.d>offMax){
         offCount++;
-        // 2 positions consécutives plutôt que 3 : détecte la sortie d'itinéraire
-        // un peu plus tôt (~1 s de gagné), sans se fier à un seul point isolé.
-        if(offCount>=2){
+        if(offCount >= (acc > 25 ? 3 : 2)){
           offCount=0; toast('<span class="spin"></span>Hors itinéraire — recalcul…',0);
-          pts.from={lat:lat,lng:lng,label:'Position actuelle'};
+          pts.from={lat:lat,lng:lng,label:'Position actuelle', heading:movingHeading()};
           recalcFromHere();
           return;
         }
@@ -3648,7 +3707,7 @@
     // depuis le départ, et à quelle distance du départ se trouve chaque
     // manœuvre. Une manœuvre dépassée est donc reconnue même si aucune position
     // GPS n'est tombée près du carrefour (GPS imprécis, vitesse élevée, tunnel).
-    var onRoute = near && near.d<=60 && stepAlong.length===navSteps.length;
+    var onRoute = near && near.d<=Math.max(60, SNAP_MAX) && stepAlong.length===navSteps.length;
     var vAlong = onRoute ? alongOf(near) : null;
     if(onRoute){
       while(navPtr < navSteps.length-1 && vAlong > stepAlong[navPtr] + STEP_PASSED) navPtr++;
@@ -3938,7 +3997,7 @@
     var curRem = remainingSeconds();
     if(curRem < ALT_MIN_GAIN + 120) return;   // trop court pour espérer un tel gain
     altBusy=true;
-    tomtomFetch({ lat:navLast.lat, lng:navLast.lng }, 8000)
+    tomtomFetch({ lat:navLast.lat, lng:navLast.lng, heading:movingHeading() }, 8000)
       .then(function(routes){
         altBusy=false;
         if(!navActive || !routes || !routes.length) return;

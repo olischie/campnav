@@ -3196,16 +3196,78 @@
 
   // La voix est mise en file : une annonce n'écrase plus la précédente.
   // `urgent` (arrivée, alerte de gabarit) passe devant tout le reste.
+  // ---------- Voix : file d'attente gérée par l'appli ----------
+  // La synthèse vocale des navigateurs mobiles a des défauts connus : si l'objet
+  // d'une phrase est effacé de la mémoire avant la fin, le signal « fini »
+  // n'arrive jamais et le moteur reste bloqué en « je parle » — tout ce qui suit
+  // reste muet (« la première annonce, puis plus rien »). Un « annuler » suivi
+  // aussitôt d'un « parler » peut aussi perdre la phrase. D'où :
+  // - une seule phrase confiée au moteur à la fois, gardée en mémoire jusqu'à sa fin ;
+  // - un délai de garde : une phrase qui « ne finit pas » est coupée et la file repart ;
+  // - le moteur relancé s'il s'est mis en pause (Android en arrière-plan) ;
+  // - une voix choisie qui échoue (voix « Internet » hors réseau) remplacée par
+  //   la voix par défaut.
+  var sayQueue = [], sayCur = null, sayTimer = null, sayLive = [];
+  function sayNext(){
+    if(sayCur || !sayQueue.length || !('speechSynthesis' in window)) return;
+    var item = sayQueue.shift(), ss = window.speechSynthesis;
+    var u = new SpeechSynthesisUtterance(item.txt);
+    u.lang = 'fr-FR'; u.rate = voiceRate;
+    var v = item.noVoice ? null : pickedVoice();
+    if(v){ u.voice = v; u.lang = v.lang; }
+    sayCur = u; sayLive.push(u);                 // référence gardée : pas d'effacement en cours de route
+    var finished = false;
+    function done(retry){
+      if(finished) return;
+      finished = true;
+      if(sayTimer){ clearTimeout(sayTimer); sayTimer = null; }
+      sayLive = sayLive.filter(function(x){ return x !== u; });
+      if(sayCur === u) sayCur = null;
+      if(retry && v && !item.noVoice) sayQueue.unshift({ txt:item.txt, noVoice:true });
+      setTimeout(sayNext, 60);
+    }
+    u.onend = function(){ done(false); };
+    u.onerror = function(e){ done(!(e && (e.error==='interrupted' || e.error==='canceled'))); };
+    // Délai de garde : ~90 ms par caractère au débit normal, 4 s au minimum.
+    var guard = Math.max(4000, item.txt.length * 90 / Math.max(0.5, voiceRate)) + 2500;
+    sayTimer = setTimeout(function(){
+      try{ ss.cancel(); }catch(e){}
+      done(false);
+    }, guard);
+    try{
+      if(ss.paused) ss.resume();
+      ss.speak(u);
+    }catch(e){ done(false); }
+  }
+  // `urgent` (arrivée, alerte de gabarit, recalcul) passe devant tout le reste.
   // `force` : parle même si la voix est coupée (bouton « Écouter la voix »).
   function speak(txt, urgent, force){
     if((!voiceOn && !force) || !('speechSynthesis' in window)) return;
-    try{
-      if(urgent) window.speechSynthesis.cancel();
-      var u=new SpeechSynthesisUtterance(txt); u.lang='fr-FR'; u.rate=voiceRate;
-      var v=pickedVoice();
-      if(v){ u.voice=v; u.lang=v.lang; }
-      window.speechSynthesis.speak(u);
-    }catch(e){}
+    if(urgent){
+      sayQueue = [{ txt:txt }];
+      if(sayCur){
+        // On coupe la phrase en cours ; la suivante part après un court délai,
+        // sans quoi certains moteurs perdent la nouvelle phrase.
+        var cur = sayCur;
+        sayCur = null;
+        if(sayTimer){ clearTimeout(sayTimer); sayTimer = null; }
+        try{ window.speechSynthesis.cancel(); }catch(e){}
+        sayLive = sayLive.filter(function(x){ return x !== cur; });
+        setTimeout(sayNext, 150);
+        return;
+      }
+    } else {
+      // Pas d'empilement : une annonce restée en attente plus de 3 en file est
+      // déjà dépassée par la route.
+      sayQueue.push({ txt:txt });
+      if(sayQueue.length > 3) sayQueue = sayQueue.slice(-3);
+    }
+    sayNext();
+  }
+  function sayStop(){
+    sayQueue = []; sayCur = null; sayLive = [];
+    if(sayTimer){ clearTimeout(sayTimer); sayTimer = null; }
+    try{ window.speechSynthesis.cancel(); }catch(e){}
   }
 
   // ---------- Choix de la voix (onglet Options) ----------
@@ -3334,7 +3396,7 @@
   $('#navVoice').addEventListener('click', function(){
     voiceOn=!voiceOn; this.classList.toggle('off',!voiceOn);
     this.textContent=voiceOn?'🔊':'🔇';
-    if(!voiceOn && 'speechSynthesis' in window) window.speechSynthesis.cancel();
+    if(!voiceOn && 'speechSynthesis' in window) sayStop();
   });
 
   // ---------- Caméra de navigation ----------
@@ -3622,7 +3684,7 @@
     if(navWatch!=null){ navigator.geolocation.clearWatch(navWatch); navWatch=null; }
     if(navMarker){ navMarker.remove(); navMarker=null; }
     stopNavLoop();
-    if('speechSynthesis' in window) window.speechSynthesis.cancel();
+    if('speechSynthesis' in window) sayStop();
     if(altTimer){ clearInterval(altTimer); altTimer=null; }
     hideAltBanner();
     // Retour à la carte d'accueil : nord en haut, vue de dessus, sans le décalage

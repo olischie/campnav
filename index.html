@@ -434,16 +434,29 @@
   }
   .maplibregl-popup-content .popgo:active{ background:var(--blue-d); }
 
-  /* Bouton recentrage (mode navigation) */
+  /* Bouton recentrage (mode navigation) : toujours présent en bas à droite,
+     face au compteur. Discret tant que la carte suit le véhicule ; bleu et
+     légendé dès que l'on a déplacé, zoomé ou tourné la carte. */
   #recenter{
-    position:absolute; z-index:810; left:50%; transform:translateX(-50%);
-    bottom:calc(90px + var(--safe-b)); display:none;
-    background:var(--blue-d); color:#fff; border:1px solid #1e40af;
-    border-radius:22px; padding:11px 20px; font-size:15px; font-weight:600;
-    box-shadow:0 8px 22px rgba(0,0,0,.5);
+    position:absolute; z-index:810; right:12px;
+    bottom:calc(92px + var(--safe-b)); display:none;
+    align-items:center; justify-content:center; gap:7px;
+    min-width:58px; height:58px; padding:0 16px; border-radius:29px;
+    background:var(--panel); color:var(--ink); border:1px solid var(--line);
+    font-size:15px; font-weight:600; box-shadow:0 6px 18px rgba(0,0,0,.5);
   }
-  #recenter.show{ display:block; }
-  #recenter:active{ background:var(--blue); }
+  body.nav #recenter{ display:flex; }
+  body.nav.hasalt #recenter{ bottom:calc(158px + var(--safe-b)); }
+  #recenter svg{ width:26px; height:26px; flex:none; }
+  #recenter .lbl{ display:none; }
+  #recenter.show{ background:var(--blue-d); color:#fff; border-color:#1e40af; }
+  #recenter.show .lbl{ display:inline; }
+  #recenter:active{ background:var(--blue); color:#fff; }
+  @media (max-width:400px){
+    #recenter{ min-width:52px; height:52px; border-radius:26px; padding:0 13px;
+               bottom:calc(91px + var(--safe-b)); }
+    body.nav.hasalt #recenter{ bottom:calc(157px + var(--safe-b)); }
+  }
 
   /* ---------- Optimisations petits écrans ---------- */
   @media (max-width:400px){
@@ -480,7 +493,7 @@
     <button class="navvoice" id="navTheme" aria-label="Jour / Nuit">🌙</button>
   </div>
 </div>
-<button id="recenter" aria-label="Recentrer sur ma position">⌖ Recentrer</button>
+<button id="recenter" aria-label="Recentrer sur ma position"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none"/><path d="M12 2v3.5M12 18.5V22M2 12h3.5M18.5 12H22"/></svg><span class="lbl">Recentrer</span></button>
 <div id="speedo">
   <div class="gauge" id="speedoGauge">
     <span class="gval mono" id="navSpeed">—</span>
@@ -2892,9 +2905,9 @@
                    pitch:NAV_PITCH, zoom:camZoom, padding:navPadding(), duration:600 });
     }
   });
-  // Dès que l'utilisateur déplace ou zoome la carte en navigation, le suivi
-  // automatique s'interrompt (la carte garde son orientation) et le bouton
-  // « Recentrer » apparaît. Seuls les gestes portent un originalEvent : les
+  // Dès que l'utilisateur déplace, zoome, tourne ou incline la carte en
+  // navigation, le suivi automatique s'interrompt et le bouton de recentrage,
+  // toujours visible, passe en bleu avec sa légende « Recentrer ». Seuls les gestes portent un originalEvent : les
   // mouvements lancés par l'appli elle-même ne coupent pas le suivi.
   function userMoved(e){
     if(e && !e.originalEvent) return;
@@ -2905,6 +2918,8 @@
   }
   map.on('dragstart', userMoved);
   map.on('zoomstart', userMoved);
+  map.on('rotatestart', userMoved);
+  map.on('pitchstart', userMoved);
 
   // ================= Clés d'API : TomTom + Openrouteservice =================
   var ttKey  = HAS_LS ? (localStorage.getItem('cc_ttkey') ||'') : '';

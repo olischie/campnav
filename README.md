@@ -111,6 +111,7 @@ Il n'est appelé que si au moins une dimension est renseignée : sans profil vé
 - [OSRM](http://project-osrm.org/) — calcul d'itinéraire (dernier recours)
 - [Overpass API](https://overpass-api.de/) — points d'intérêt et restrictions de gabarit (avec miroirs [kumi.systems](https://overpass.kumi.systems/) et [private.coffee](https://overpass.private.coffee/))
 - [TomTom](https://developer.tomtom.com/) — itinéraire poids-lourd, trafic en direct (optionnel)
+- [NoSleep.js](https://github.com/richtr/NoSleep.js) (MIT) — technique de la vidéo muette qui garde l'écran de l'iPhone allumé pendant le guidage
 
 Merci de respecter les conditions d'utilisation de chacun de ces services.
 

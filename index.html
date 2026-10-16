@@ -767,6 +767,10 @@
 <script>
 (function(){
   "use strict";
+  // Appli iPhone (coque Capacitor) : native.js, ajouté seulement dans l'appli,
+  // expose le GPS en arrière-plan, la voix native et l'écran allumé. Dans un
+  // navigateur, NATIVE vaut null et tout passe par les API web habituelles.
+  var NATIVE = (window.CCNative && window.CCNative.isNative) ? window.CCNative : null;
   if (window.__ccNoMap) return;   // rien à initialiser sans MapLibre
 
   // Instances Overpass. Les serveurs publics renvoient un 429 / 504 (corps HTML,
@@ -3287,6 +3291,7 @@
     }catch(e){}
   }
   function requestWake(){
+    if(NATIVE && NATIVE.KeepAwake){ NATIVE.KeepAwake.keepAwake().catch(function(){}); return; }
     if('wakeLock' in navigator){
       navigator.wakeLock.request('screen').then(function(w){
         wakeLock=w;
@@ -3296,11 +3301,12 @@
     if(IS_IOS) startAwakeVideo();              // sur iPhone, toujours en renfort
   }
   function releaseWake(){
+    if(NATIVE && NATIVE.KeepAwake){ NATIVE.KeepAwake.allowSleep().catch(function(){}); return; }
     try{ if(wakeLock){ wakeLock.release(); wakeLock=null; } }catch(e){}
     try{ if(awakeVideo) awakeVideo.pause(); }catch(e){}
   }
   document.addEventListener('visibilitychange', function(){
-    if(!navActive || document.visibilityState!=='visible') return;
+    if(NATIVE || !navActive || document.visibilityState!=='visible') return;
     if(!wakeLock) requestWake();
     else if(IS_IOS) startAwakeVideo();
     // Retour sur l'appli : la voix a pu être suspendue par le système.
@@ -3308,7 +3314,7 @@
   });
   // iPhone : chaque toucher pendant le guidage relance au besoin la vidéo et la voix.
   document.addEventListener('touchend', function(){
-    if(!navActive) return;
+    if(NATIVE || !navActive) return;
     if(IS_IOS && awakeVideo && awakeVideo.paused) startAwakeVideo();
     try{ if(window.speechSynthesis && window.speechSynthesis.paused) window.speechSynthesis.resume(); }catch(e){}
   }, { passive:true });
@@ -3389,7 +3395,34 @@
   // - une voix choisie qui échoue (voix « Internet » hors réseau) remplacée par
   //   la voix par défaut.
   var sayQueue = [], sayCur = null, sayTimer = null, sayLive = [];
+  // Appli iPhone : voix native de l'iPhone. Elle parle aussi écran verrouillé et
+  // baisse la musique ou la radio le temps de l'annonce. On enchaîne sur la fin
+  // de chaque phrase sans minuterie (les minuteries dorment en arrière-plan) ;
+  // le délai de garde ne sert que si le signal de fin se perd.
+  function sayNextNative(){
+    if(sayCur || !sayQueue.length) return;
+    var item = sayQueue.shift(), token = {};
+    sayCur = token;
+    var opts = { text:item.txt, lang:'fr-FR', rate:voiceRate, pitch:1, volume:1,
+                 category:'playback', queueStrategy:1 };
+    var v = item.noVoice ? null : pickedVoice();
+    if(v && v._idx!=null) opts.voice = v._idx;
+    var finished = false;
+    function done(){
+      if(finished) return;
+      finished = true;
+      if(sayTimer){ clearTimeout(sayTimer); sayTimer = null; }
+      if(sayCur === token){ sayCur = null; sayNext(); }
+    }
+    sayTimer = setTimeout(done, Math.max(4000, item.txt.length * 90 / Math.max(0.5, voiceRate)) + 2500);
+    NATIVE.TTS.speak(opts).then(done, function(){
+      // Voix choisie indisponible : nouvel essai avec la voix par défaut.
+      if(v && !item.noVoice && !finished){ sayQueue.unshift({ txt:item.txt, noVoice:true }); }
+      done();
+    });
+  }
   function sayNext(){
+    if(NATIVE && NATIVE.TTS) return sayNextNative();
     if(sayCur || !sayQueue.length || !('speechSynthesis' in window)) return;
     var item = sayQueue.shift(), ss = window.speechSynthesis;
     var u = new SpeechSynthesisUtterance(item.txt);
@@ -3423,7 +3456,20 @@
   // `urgent` (arrivée, alerte de gabarit, recalcul) passe devant tout le reste.
   // `force` : parle même si la voix est coupée (bouton « Écouter la voix »).
   function speak(txt, urgent, force){
-    if((!voiceOn && !force) || !('speechSynthesis' in window)) return;
+    if(!voiceOn && !force) return;
+    if(NATIVE && NATIVE.TTS){
+      if(urgent){
+        sayQueue = [{ txt:txt }]; sayCur = null;
+        if(sayTimer){ clearTimeout(sayTimer); sayTimer = null; }
+        NATIVE.TTS.stop().catch(function(){}).then(sayNext);
+      } else {
+        sayQueue.push({ txt:txt });
+        if(sayQueue.length > 3) sayQueue = sayQueue.slice(-3);
+        sayNext();
+      }
+      return;
+    }
+    if(!('speechSynthesis' in window)) return;
     if(urgent){
       sayQueue = [{ txt:txt }];
       if(sayCur){
@@ -3448,6 +3494,7 @@
   function sayStop(){
     sayQueue = []; sayCur = null; sayLive = [];
     if(sayTimer){ clearTimeout(sayTimer); sayTimer = null; }
+    if(NATIVE && NATIVE.TTS){ NATIVE.TTS.stop().catch(function(){}); return; }
     try{ window.speechSynthesis.cancel(); }catch(e){}
   }
 
@@ -3460,7 +3507,10 @@
     var vr = parseInt(localStorage.getItem('cc_rate')||'', 10);
     if(vr>=70 && vr<=140) voiceRate = vr/100;
   }catch(e){}
+  // Voix natives de l'iPhone (appli) : on garde leur rang, que le moteur attend.
+  var nativeVoices = [];
   function frVoices(){
+    if(NATIVE && NATIVE.TTS) return nativeVoices.filter(function(v){ return /^fr/i.test(v.lang||''); });
     if(!('speechSynthesis' in window)) return [];
     return (window.speechSynthesis.getVoices()||[]).filter(function(v){ return /^fr/i.test(v.lang||''); });
   }
@@ -3484,7 +3534,14 @@
     var sel=$('#voiceSel'), r=$('#rateRange'), out=$('#rateOut');
     if(!sel) return;
     fillVoiceList();
-    if('speechSynthesis' in window){
+    if(NATIVE && NATIVE.TTS){
+      NATIVE.TTS.getSupportedVoices().then(function(r){
+        nativeVoices = ((r && r.voices) || []).map(function(v, i){
+          return { voiceURI:v.voiceURI || v.name, name:v.name, lang:v.lang, localService:v.localService, _idx:i };
+        });
+        fillVoiceList();
+      }).catch(function(){});
+    } else if('speechSynthesis' in window){
       try{ window.speechSynthesis.addEventListener('voiceschanged', fillVoiceList); }catch(e){}
       setTimeout(fillVoiceList, 800);      // certains navigateurs ne préviennent pas
     }
@@ -3496,7 +3553,7 @@
     r.addEventListener('input', function(){ voiceRate = (parseInt(r.value,10)||100)/100; out.textContent = r.value+' %'; });
     r.addEventListener('change', function(){ try{ localStorage.setItem('cc_rate', r.value); }catch(e){} });
     $('#voiceTest').addEventListener('click', function(){
-      if(!('speechSynthesis' in window)){ toast('La synthèse vocale n\'est pas disponible dans ce navigateur.'); return; }
+      if(!NATIVE && !('speechSynthesis' in window)){ toast('La synthèse vocale n\'est pas disponible dans ce navigateur.'); return; }
       speak('Dans 800 mètres, au rond-point, prenez la deuxième sortie, direction Namur.', true, true);
     });
   })();
@@ -3585,7 +3642,7 @@
   $('#navVoice').addEventListener('click', function(){
     voiceOn=!voiceOn; this.classList.toggle('off',!voiceOn);
     this.textContent=voiceOn?'🔊':'🔇';
-    if(!voiceOn && 'speechSynthesis' in window) sayStop();
+    if(!voiceOn && (NATIVE || 'speechSynthesis' in window)) sayStop();
   });
 
   // ---------- Caméra de navigation ----------
@@ -3859,10 +3916,35 @@
     hideAltBanner(); altSnooze=0; altBusy=false;
     if(altTimer){ clearInterval(altTimer); altTimer=null; }
     if(ttKey) altTimer=setInterval(checkTrafficAlternative, ALT_PERIOD);
-    navWatch=navigator.geolocation.watchPosition(onNavPos, function(){
+    function gpsLost(){
       var t=Date.now();
       if(t-lastGpsWarn>20000){ lastGpsWarn=t; toast('Signal GPS perdu…',1500); }
-    }, { enableHighAccuracy:true, maximumAge:1000, timeout:12000 });
+    }
+    if(NATIVE && NATIVE.BG){
+      // Appli iPhone : le GPS continue écran verrouillé ou appli en arrière-plan
+      // (bandeau bleu en haut de l'écran pendant ce temps).
+      var w = navWatch = { native:true, id:null };
+      NATIVE.BG.addWatcher({ backgroundTitle:'campnav', backgroundMessage:'Guidage en cours',
+                             requestPermissions:true, stale:false, distanceFilter:0 },
+        function(loc, err){
+          if(navWatch!==w) return;
+          if(err){
+            if(err.code==='NOT_AUTHORIZED') toast('Autorisez la localisation pour campnav dans Réglages.',5000);
+            else gpsLost();
+            return;
+          }
+          if(!loc) return;
+          onNavPos({ coords:{ latitude:loc.latitude, longitude:loc.longitude, accuracy:loc.accuracy,
+                              speed:loc.speed, heading:loc.bearing, altitude:loc.altitude },
+                     timestamp:loc.time || Date.now() });
+        }).then(function(id){
+          if(navWatch===w) w.id=id;
+          else NATIVE.BG.removeWatcher({ id:id }).catch(function(){});
+        }).catch(gpsLost);
+      return;
+    }
+    navWatch=navigator.geolocation.watchPosition(onNavPos, gpsLost,
+      { enableHighAccuracy:true, maximumAge:1000, timeout:12000 });
   }
 
   function stopNav(){
@@ -3871,10 +3953,14 @@
     $('#navEta').classList.remove('jam');
     $('#recenter').classList.remove('show');
     releaseWake();
-    if(navWatch!=null){ navigator.geolocation.clearWatch(navWatch); navWatch=null; }
+    if(navWatch!=null){
+      if(navWatch.native){ if(navWatch.id!=null) NATIVE.BG.removeWatcher({ id:navWatch.id }).catch(function(){}); }
+      else navigator.geolocation.clearWatch(navWatch);
+      navWatch=null;
+    }
     if(navMarker){ navMarker.remove(); navMarker=null; }
     stopNavLoop();
-    if('speechSynthesis' in window) sayStop();
+    if(NATIVE || 'speechSynthesis' in window) sayStop();
     if(altTimer){ clearInterval(altTimer); altTimer=null; }
     hideAltBanner();
     // Retour à la carte d'accueil : nord en haut, vue de dessus, sans le décalage

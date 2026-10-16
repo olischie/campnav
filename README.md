@@ -40,6 +40,36 @@ L'appli est une **PWA** : installable et utilisable hors-ligne, sans passer par 
 
 > ⚠️ Le mode hors-ligne et l'installation ne fonctionnent qu'en **HTTPS**, pas en ouverture locale `file://`.
 
+## 🍏 Appli iPhone (gratuite, installée depuis Linux)
+
+Une version « vraie appli » existe à côté de la version web. Le code est le même, mais le **guidage continue écran verrouillé** (GPS et voix), la voix **baisse la musique ou la radio** pendant les annonces et l'écran reste allumé sans astuce. Le bandeau bleu en haut de l'écran signale que le GPS tourne en arrière-plan.
+
+Elle est fabriquée automatiquement par GitHub (workflow « Appli iPhone ») à chaque modification et publiée dans la release [`iphone`](https://github.com/olischie/campnav/releases/tag/iphone) :
+- le fichier d'installation : `https://github.com/olischie/campnav/releases/download/iphone/campnav.ipa`
+- la source SideStore : `https://github.com/olischie/campnav/releases/download/iphone/source.json`
+
+L'installation passe par **SideStore**, avec un identifiant Apple ordinaire (gratuit). L'ordinateur ne sert qu'une fois.
+
+**1. Une seule fois, sur l'ordinateur Linux**
+1. Installez `usbmuxd` (paquet de votre distribution, souvent déjà présent) et téléchargez **iloader** sur [iloader.app](https://iloader.app/) (.deb, .rpm ou AppImage).
+2. Sur l'iPhone, installez l'appli gratuite **LocalDevVPN** depuis l'App Store.
+3. Branchez l'iPhone en USB, acceptez « Faire confiance à cet ordinateur ».
+4. Ouvrez iloader, connectez-vous avec votre identifiant Apple, choisissez l'iPhone, puis **Install SideStore (Stable)**.
+
+**2. Sur l'iPhone**
+1. Réglages → Général → **VPN et gestion de l'appareil** → votre identifiant Apple → **Faire confiance**.
+2. Réglages → Confidentialité et sécurité → tout en bas, activez le **mode développeur** (l'iPhone redémarre).
+3. Ouvrez LocalDevVPN → **Connect**, puis ouvrez SideStore et connectez-vous avec le même identifiant Apple. Dans **My Apps**, touchez le compteur « 7 DAYS » de SideStore pour terminer la mise en place.
+4. Dans SideStore, onglet **Sources** → **+** → collez l'adresse de la source ci-dessus, puis installez **campnav**. (Autre possibilité : téléchargez `campnav.ipa` dans Safari, puis **My Apps** → **+** → choisissez le fichier.)
+5. Au premier lancement, autorisez la localisation.
+
+**Chaque semaine** : les applis installées ainsi expirent au bout de 7 jours (règle d'Apple pour les comptes gratuits). Le renouvellement se fait sur l'iPhone, sans ordinateur : en Wi-Fi, LocalDevVPN activé, ouvrez SideStore → **My Apps** → **Refresh All**. Avant un voyage, renouvelez juste avant de partir pour avoir 7 jours devant vous. Une nouvelle version de campnav apparaît dans SideStore comme une mise à jour.
+
+À savoir :
+- l'appli a sa propre mémoire : les clés TomTom, Openrouteservice et Protomaps, les favoris et les véhicules sont à ressaisir une fois dans l'onglet Options ;
+- une connexion reste nécessaire pour la carte, les recherches et le calcul d'itinéraire, comme pour la version web ;
+- le dossier `app-iphone/` contient la coque (Capacitor 7) ; le pont `native.js` n'existe que dans l'appli, la version web ne change pas.
+
 ## 🗺️ Fond de carte
 
 Trois fournisseurs, essayés dans cet ordre, comme les moteurs d'itinéraire :

@@ -262,7 +262,8 @@
   /* En navigation, seul le bouton trafic reste accessible, sous le bandeau d'instruction */
   /* Le cadre d'instruction fait ~114 px de haut (flèche 52 + 2 boutons empilés 86,
      plus 28 de marges) : on place les boutons flottants juste en dessous. */
-  body.nav .fabs{ top:calc(10px + var(--safe-t) + 114px + 10px); }
+  body.nav .fabs{ top:calc(10px + var(--safe-t) + var(--navtop-h, 114px) + 10px); }
+  body.nav #toast{ top:calc(10px + var(--safe-t) + var(--navtop-h, 114px) + 12px); }
   /* En navigation, le bandeau d'instruction porte déjà son bouton jour/nuit. */
   body.nav .fabs #locBtn, body.nav .fabs #themeBtn{ display:none; }
   #navTop{
@@ -273,12 +274,27 @@
   }
   body.nav #navTop{ display:flex; }
   #navTop .arrow{
-    width:52px;height:52px;border-radius:14px;background:#0b1220cc;color:#fff;flex:none;
-    display:flex;align-items:center;justify-content:center;font-size:30px;line-height:1;
+    width:60px;height:60px;border-radius:14px;background:#0b1220cc;color:#fff;flex:none;
+    display:flex;align-items:center;justify-content:center;font-size:36px;line-height:1;
   }
   #navTop .navtxt{flex:1;min-width:0;}
-  #navTop .navdist{font-size:26px;font-weight:700;color:#fff;line-height:1.1;}
-  #navTop .navinstr{font-size:15px;color:#dbe6ff;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  #navTop .navline1{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  #navTop .navdist{font-size:30px;font-weight:700;color:#fff;line-height:1.1;}
+  /* « puis ↱ » : la manœuvre suivante arrive tout de suite après */
+  #navTop .navthen{display:none;font-size:16px;font-weight:700;color:#fff;background:#0b1220aa;
+    border-radius:9px;padding:3px 9px;white-space:nowrap;}
+  #navTop .navthen.show{display:inline-block;}
+  /* Action (« Prenez la sortie 23 ») puis route ou direction, sur deux lignes au plus chacune */
+  #navTop .navinstr{font-size:23px;font-weight:700;color:#fff;line-height:1.2;margin-top:3px;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  #navTop .navdir{font-size:20px;font-weight:600;color:#dbe6ff;line-height:1.3;margin-top:4px;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  #navTop .navdir:empty{display:none;}
+  /* Numéros de route façon panneau : E en vert, A en bleu, les autres en blanc */
+  #navTop .rb{display:inline-block;font-size:15px;font-weight:800;line-height:1.3;padding:0 6px;
+    margin-right:6px;border-radius:5px;vertical-align:2px;background:#fff;color:#111;border:2px solid #111;}
+  #navTop .rb.e{background:#15803d;color:#fff;border-color:#fff;}
+  #navTop .rb.a{background:#1d4ed8;color:#fff;border-color:#fff;}
   #navTop .navvoice{
     width:44px;height:44px;border-radius:12px;border:1px solid #1e40af;flex:none;
     background:#0b1220aa;color:#fff;font-size:18px;
@@ -468,13 +484,17 @@
     #navBottom .k{ font-size:9px; }
     #navBottom .navquit{ padding:12px 13px; font-size:14px; }
     #navTop{ gap:10px; padding:12px 12px; }
-    #navTop .arrow{ width:46px; height:46px; font-size:26px; }
-    #navTop .navdist{ font-size:23px; }
-    body.nav .fabs{ top:calc(10px + var(--safe-t) + 110px + 8px); }
+    #navTop .arrow{ width:54px; height:54px; font-size:32px; }
+    #navTop .navdist{ font-size:28px; }
+    #navTop .navinstr{ font-size:22px; }
+    #navTop .navdir{ font-size:19px; }
     .tab{ font-size:12px; padding:11px 3px; }
     .field input{ font-size:16px; }
   }
   @media (max-width:340px){
+    #navTop .navinstr{ font-size:20px; }
+    #navTop .navdir{ font-size:17px; }
+    #navTop .rb{ font-size:14px; }
     #navBottom .nb-cell:nth-child(1){ display:none; }
     .tab{ font-size:11px; }
   }
@@ -488,8 +508,9 @@
 <div id="navTop">
   <div class="arrow" id="navArrow">↑</div>
   <div class="navtxt">
-    <div class="navdist mono" id="navDist">—</div>
+    <div class="navline1"><span class="navdist mono" id="navDist">—</span><span class="navthen" id="navThen"></span></div>
     <div class="navinstr" id="navInstr">Préparez-vous…</div>
+    <div class="navdir" id="navDir"></div>
   </div>
   <div class="navbtns">
     <button class="navvoice" id="navVoice" aria-label="Voix">🔊</button>
@@ -1646,6 +1667,11 @@
         // (« exits » : « 23 » ; « destinations » : « A 4: Namur, Liège »).
         if(s.exits && s.maneuver) s.maneuver.exitNumber = String(s.exits).split(';')[0];
         if(s.destinations) s.towards = String(s.destinations).replace(/^[^:]*:\s*/, '');
+        // Numéros de route : « ref » de la route prise, et ceux des panneaux (« A 4: … »).
+        s.refs = [];
+        if(s.ref) s.refs.push(s.ref);
+        var dm = s.destinations ? String(s.destinations).match(/^([^:]*):/) : null;
+        if(dm) s.refs.push(dm[1]);
         steps.push(s);
       }); });
       // Tableau, comme tomtomFetch/orsFetch : fetchRoutes()/calcRoute() attendent
@@ -1659,21 +1685,35 @@
   }
 
   // Correspondance des manœuvres TomTom vers le format interne
-  function ttManeuver(m){
+  // Manœuvres TomTom -> format interne. `ang` : angle du virage (négatif à
+  // gauche), utile quand le code ne dit pas le côté (entrée d'autoroute).
+  function ttManeuver(m, ang){
     m=(m||'').toUpperCase();
+    var side = m.indexOf('LEFT')>-1 ? 'left' : m.indexOf('RIGHT')>-1 ? 'right'
+             : (ang!=null && ang<-10) ? 'left' : (ang!=null && ang>10) ? 'right' : '';
     if(m==='DEPART'||m==='START') return {type:'depart'};
-    if(m==='ARRIVE'||m.indexOf('ARRIVE')===0) return {type:'arrive'};
-    if(m.indexOf('ROUNDABOUT')===0) return {type:'roundabout', modifier:''};
+    if(m.indexOf('ARRIVE')===0) return {type:'arrive'};
+    if(m==='ROUNDABOUT_CROSS') return {type:'roundabout', modifier:'straight'};
+    if(m==='ROUNDABOUT_BACK') return {type:'roundabout', modifier:'uturn'};
+    if(m.indexOf('ROUNDABOUT')===0) return {type:'roundabout', modifier:side};
     if(m.indexOf('MOTORWAY_EXIT')===0 || m==='TAKE_EXIT' || m.indexOf('EXIT')===0)
-      return {type:'off ramp', modifier: m.indexOf('LEFT')>-1?'left':'right'};
-    if(m.indexOf('MERGE')===0) return {type:'merge', modifier: m.indexOf('LEFT')>-1?'left':'right'};
+      return {type:'off ramp', modifier: side||'right'};
+    if(m==='ENTER_MOTORWAY'||m==='ENTER_FREEWAY') return {type:'on ramp', modifier:side, motorway:true};
+    if(m==='ENTER_HIGHWAY'||m==='ENTRANCE_RAMP') return {type:'on ramp', modifier:side};
+    if(m.indexOf('MERGE')===0) return {type:'merge', modifier: side||'right'};
+    // « Restez à gauche » : bifurcation, typiquement entre deux autoroutes
+    if(m==='KEEP_LEFT') return {type:'fork', modifier:'left'};
+    if(m==='KEEP_RIGHT') return {type:'fork', modifier:'right'};
     if(m==='TURN_LEFT') return {type:'turn', modifier:'left'};
     if(m==='TURN_RIGHT') return {type:'turn', modifier:'right'};
     if(m==='SHARP_LEFT') return {type:'turn', modifier:'sharp left'};
     if(m==='SHARP_RIGHT') return {type:'turn', modifier:'sharp right'};
-    if(m==='BEAR_LEFT'||m==='KEEP_LEFT') return {type:'turn', modifier:'slight left'};
-    if(m==='BEAR_RIGHT'||m==='KEEP_RIGHT') return {type:'turn', modifier:'slight right'};
-    if(m==='MAKE_UTURN'||m==='UTURN') return {type:'turn', modifier:'uturn'};
+    if(m==='BEAR_LEFT') return {type:'turn', modifier:'slight left'};
+    if(m==='BEAR_RIGHT') return {type:'turn', modifier:'slight right'};
+    if(m==='MAKE_UTURN'||m==='UTURN'||m==='TRY_MAKE_UTURN') return {type:'turn', modifier:'uturn'};
+    if(m==='TAKE_FERRY') return {type:'ferry'};
+    if(m==='SWITCH_PARALLEL_ROAD') return {type:'continue', modifier:'straight', label:'passez sur la voie parallèle'};
+    if(m==='SWITCH_MAIN_ROAD') return {type:'continue', modifier:'straight', label:'rejoignez la voie principale'};
     return {type:'continue', modifier:'straight'};
   }
 
@@ -1723,12 +1763,14 @@
           var nxt=instr[i+1];
           var dist = nxt ? Math.max(0,(nxt.routeOffsetInMeters||0)-(ins.routeOffsetInMeters||0))
                          : Math.max(0,(rt.summary.lengthInMeters||0)-(ins.routeOffsetInMeters||0));
-          var mv=ttManeuver(ins.maneuver);
+          var mv=ttManeuver(ins.maneuver, ins.turnAngleInDecimalDegrees);
           mv.location=[ins.point.longitude, ins.point.latitude];
           if(ins.roundaboutExitNumber) mv.exit=ins.roundaboutExitNumber;
           if(ins.exitNumber) mv.exitNumber=String(ins.exitNumber);
           // Direction indiquée sur les panneaux (« Namur », « Liège - Aachen »).
-          return { distance:dist, name:(ins.street||''), maneuver:mv, towards:(ins.signpostText||'') };
+          // Numéros de la route prise après la manœuvre (« E40 », « A3 »).
+          return { distance:dist, name:(ins.street||''), maneuver:mv, towards:(ins.signpostText||''),
+                   refs:(ins.roadNumbers||[]) };
         });
         // Ralentissements : indices de début et de fin dans `coords`, retard en secondes.
         var traffic=(rt.sections||[]).filter(function(sc){
@@ -2980,9 +3022,12 @@
     showSet('opt');                                       // …puis ouvre directement Options
   }
 
+  // Tuiles vectorielles : chaque tronçon porte sa vitesse relative à la vitesse
+  // normale (traffic_level, de 0 à 1). On ne dessine que les ralentissements.
   function ttUrl(){
-    return 'https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key='+encodeURIComponent(ttKey);
+    return 'https://api.tomtom.com/traffic/map/4/tile/flow/relative/{z}/{x}/{y}.pbf?key='+encodeURIComponent(ttKey);
   }
+  var JAM_LEVEL = 0.75;   // en dessous de 75 % de la vitesse normale : ralentissement
 
   $('#trafficBtn').addEventListener('click', function(){
     if(ttActive){ closeTraffic(); return; }
@@ -3103,16 +3148,32 @@
     else toast('Clé Protomaps oubliée.',2500);
   });
 
-  // Couche raster du trafic, glissée sous le cadre de recherche et le tracé :
-  // l'itinéraire reste lisible par-dessus les couleurs du trafic.
+  // Couche du trafic, glissée sous le cadre de recherche et le tracé : l'itinéraire
+  // reste lisible par-dessus. Seuls les ralentissements sont dessinés (orange,
+  // rouge, rouge foncé) ainsi que les routes fermées ; la circulation fluide
+  // n'apparaît pas. Un tronçon qui ne concerne qu'un sens est décalé de son côté.
   function addTrafficLayer(){
     if(!styleReady) return;   // sera ajoutée au prochain « style.load »
     if(!map.getSource('cc-traffic')) map.addSource('cc-traffic', {
-      type:'raster', tiles:[ttUrl()], tileSize:256, maxzoom:18
+      type:'vector', tiles:[ttUrl()], minzoom:0, maxzoom:18
     });
+    var lvl=['coalesce', ['get','traffic_level'], 1];
+    var closed=['has','road_closure'];
+    var oneSide=['==', ['get','traffic_road_coverage'], 'one_side'];
+    var sideSign=['case', ['has','left_hand_traffic'], -1, 1];
+    function offset(px){ return ['case', oneSide, ['*', sideSign, px], 0]; }
     if(!map.getLayer('cc-traffic')) map.addLayer({
-      id:'cc-traffic', type:'raster', source:'cc-traffic',
-      paint:{ 'raster-opacity':0.9, 'raster-fade-duration':0 }
+      id:'cc-traffic', type:'line', source:'cc-traffic', 'source-layer':'Traffic flow',
+      filter:['any', closed, ['<', lvl, JAM_LEVEL]],
+      layout:{ 'line-cap':'round', 'line-join':'round' },
+      paint:{
+        'line-color':['case', closed, '#6b0a0a',
+                      ['<', lvl, 0.25], '#a3000b',
+                      ['<', lvl, 0.5], '#e5262b', '#f28c28'],
+        'line-width':['interpolate', ['linear'], ['zoom'], 6, 1.5, 10, 2.5, 13, 4, 16, 6, 19, 9],
+        'line-offset':['interpolate', ['linear'], ['zoom'], 6, offset(0.5), 10, offset(1.5), 13, offset(2.5), 16, offset(4), 19, offset(6)],
+        'line-opacity':0.95
+      }
     }, map.getLayer('cc-area') ? 'cc-area' : undefined);
   }
   function removeTrafficLayer(){
@@ -3252,35 +3313,62 @@
     try{ if(window.speechSynthesis && window.speechSynthesis.paused) window.speechSynthesis.resume(); }catch(e){}
   }, { passive:true });
 
-  // Traduction des manœuvres en français + flèche
+  // Numéros de route normalisés (« E 40 » → « E40 »), sans doublons, trois au plus.
+  var REF_RE = /^[A-Z]{1,3}\d{1,4}[A-Z]?$/;
+  function normRefs(list){
+    var out=[];
+    (list||[]).forEach(function(r){
+      String(r||'').split(/[;,\/]/).forEach(function(x){
+        x = x.trim().toUpperCase().replace(/^([A-Z]{1,3})[\s-]+(\d)/, '$1$2');
+        if(REF_RE.test(x) && out.indexOf(x)<0) out.push(x);
+      });
+    });
+    return out.slice(0,3);
+  }
+
+  // Bandeau : flèche, action courte (t), numéros de route (refs) et, en dessous,
+  // la direction des panneaux ou le nom de la route (d).
   function maneuverFr(step){
-    var m=step.maneuver||{}, type=m.type||'', mod=m.modifier||'', road=step.name||'';
-    var dir={
-      'left':'à gauche','right':'à droite',
-      'slight left':'légèrement à gauche','slight right':'légèrement à droite',
-      'sharp left':'franchement à gauche','sharp right':'franchement à droite',
-      'straight':'tout droit','uturn':'demi-tour'
-    }[mod]||'';
-    var road_s = road? ' sur '+road : '';
+    var m=step.maneuver||{}, type=m.type||'', mod=m.modifier||'';
+    var dir = DIR_SPOKEN[mod] || '';
+    var side = /left/.test(mod) ? 'à gauche' : /right/.test(mod) ? 'à droite' : 'tout droit';
+    var t, a=arrow(mod);
     switch(type){
-      case 'depart': return {t:'Départ'+road_s, a:'↑'};
-      case 'arrive': return {t:'Vous êtes arrivé à destination', a:'⚑'};
-      case 'turn': return {t:'Tournez '+dir+road_s, a:arrow(mod)};
-      case 'new name': return {t:'Continuez'+road_s, a:'↑'};
-      case 'continue': return {t:'Continuez '+(dir||'tout droit')+road_s, a:arrow(mod)};
-      case 'merge': return {t:'Insérez-vous '+dir+road_s, a:arrow(mod)};
-      case 'on ramp': return {t:'Prenez la bretelle '+dir+road_s, a:arrow(mod)};
-      case 'off ramp':
-        return {t:'Prenez la sortie'+(m.exitNumber?' '+m.exitNumber:'')+(step.towards?' — '+step.towards:(dir?' '+dir:'')+road_s), a:arrow(mod)};
-      case 'fork': return {t:'À l\'embranchement, gardez '+dir+(step.towards?' — '+step.towards:road_s), a:arrow(mod)};
-      case 'end of road': return {t:'En bout de route, tournez '+dir+road_s, a:arrow(mod)};
-      case 'roundabout':
-      case 'rotary':
-      case 'roundabout turn':
-        var ex=m.exit?(' — '+m.exit+'ᵉ sortie'):'';
-        return {t:'Au rond-point'+(dir?', sortez '+dir:'')+ex+road_s, a:'↻'};
-      default: return {t:(dir?('Continuez '+dir):'Continuez')+road_s, a:arrow(mod)};
+      case 'depart': t='Départ'; a='↑'; break;
+      case 'arrive': t='Arrivée à destination'; a='⚑'; break;
+      case 'turn': t = mod==='uturn' ? 'Faites demi-tour' : 'Tournez '+dir; break;
+      case 'new name': case 'continue':
+        t = m.label ? cap(m.label) : (mod==='uturn' ? 'Faites demi-tour' : 'Continuez '+(dir||'tout droit')); break;
+      case 'merge': t='Insérez-vous'+(dir?' '+dir:''); break;
+      case 'on ramp': t = m.motorway ? 'Prenez l\'autoroute' : 'Prenez la bretelle'+(dir?' '+dir:''); break;
+      case 'off ramp': t='Prenez la sortie'+(m.exitNumber ? ' '+m.exitNumber : (dir?' '+dir:'')); break;
+      case 'fork': t='Restez '+side; break;
+      case 'end of road': t='Au bout de la route, tournez '+dir; break;
+      case 'roundabout': case 'rotary': case 'roundabout turn':
+        var ex=+m.exit;
+        t = 'Au rond-point, '+(ex>0 ? 'prenez la '+ex+(ex===1?'ʳᵉ':'ᵉ')+' sortie' : (dir ? 'sortez '+dir : 'continuez'));
+        a='↻'; break;
+      case 'ferry': t='Prenez le ferry'; a='⛴'; break;
+      default: t='Continuez '+(dir||'tout droit');
     }
+    if(type==='arrive') return { t:t, a:a, refs:[], d:'' };
+
+    // Panneaux : les numéros de route qu'ils contiennent passent en pastilles.
+    var refs = normRefs(step.refs), towards = [];
+    String(step.towards||'').split(/\s*[;\/,·]\s*/).forEach(function(x){
+      x = x.trim(); if(!x) return;
+      var r = normRefs([x]);
+      if(r.length && r[0]===x.toUpperCase().replace(/[\s-]+/g,'')){ if(refs.indexOf(r[0])<0) refs.push(r[0]); }
+      else if(towards.indexOf(x)<0) towards.push(x);
+    });
+    // Un nom de rue qui n'est qu'un numéro (« E40 ») devient une pastille.
+    var name = String(step.name||'').trim(), nr = normRefs([name]);
+    if(name && nr.length && nr[0]===name.toUpperCase().replace(/[\s-]+/g,'')){
+      if(refs.indexOf(nr[0])<0) refs.push(nr[0]);
+      name='';
+    }
+    var d = towards.length ? 'Direction '+towards.join(' · ') : name;
+    return { t:t, a:a, refs:refs.slice(0,3), d:d };
   }
   function arrow(mod){
     return {'left':'←','right':'→','slight left':'↖','slight right':'↗',
@@ -3482,6 +3570,14 @@
   }
 
   function flattenSteps(rt){ return (rt && rt.steps) ? rt.steps : []; }
+
+  // Le bandeau change de hauteur selon la longueur des indications : les boutons
+  // et les messages placés dessous suivent sa hauteur réelle.
+  (function(){
+    var el=$('#navTop');
+    function upd(){ if(el.offsetHeight) document.body.style.setProperty('--navtop-h', el.offsetHeight+'px'); }
+    if(window.ResizeObserver) new ResizeObserver(upd).observe(el);
+  })();
 
   $('#startNav').addEventListener('click', startNav);
   $('#navQuit').addEventListener('click', stopNav);
@@ -3895,6 +3991,7 @@
     }
 
     var fr=maneuverFr(step);
+    fr.then = thenArrow(navPtr);
     updateNavDisplay(d, fr, d + remainingFrom(navPtr));
 
     if(navPtr !== ptrBefore) contPending = true;   // un virage vient d'être passé
@@ -3979,9 +4076,10 @@
         p = (mod==='uturn') ? 'faites demi-tour' : 'tournez '+(dir||'');
         break;
       case 'new name': case 'continue':
-        p = (mod==='uturn') ? 'faites demi-tour' : 'continuez '+(dir||'tout droit'); break;
+        p = m.label ? m.label : (mod==='uturn') ? 'faites demi-tour' : 'continuez '+(dir||'tout droit'); break;
       case 'merge': p = 'insérez-vous'+(dir?' '+dir:''); break;
-      case 'on ramp': p = 'prenez la bretelle'+(dir?' '+dir:''); tail = towards ? 'direction '+towards : road; break;
+      case 'on ramp': p = m.motorway ? 'prenez l\'autoroute' : 'prenez la bretelle'+(dir?' '+dir:''); tail = towards ? 'direction '+towards : road; break;
+      case 'ferry': p = 'prenez le ferry'; break;
       case 'off ramp':
         p = 'prenez la sortie'+(m.exitNumber?' '+m.exitNumber:'')+(dir && !m.exitNumber?' '+dir:'');
         tail = towards ? 'direction '+towards : road; break;
@@ -4068,9 +4166,36 @@
   }
 
   function updateNavDisplay(d, fr, remain){
-    if(fr){ $('#navArrow').textContent=fr.a; $('#navInstr').textContent=fr.t; }
+    if(fr){
+      $('#navArrow').textContent=fr.a; $('#navInstr').textContent=fr.t;
+      renderDir(fr);
+      var th=$('#navThen');
+      th.textContent = fr.then ? 'puis '+fr.then : '';
+      th.classList.toggle('show', !!fr.then);
+    }
     $('#navDist').textContent = d==null?'—':(d<1000?Math.round(d/10)*10+' m':fmtKm(d));
     if(remain!=null) updateEta(remain);
+  }
+  // Ligne « route / direction » : pastilles de numéros puis texte. Reconstruite
+  // seulement quand elle change (elle est rafraîchie à chaque position GPS).
+  var dirKey='';
+  function renderDir(fr){
+    var key=(fr.refs||[]).join('|')+'#'+(fr.d||'');
+    if(key===dirKey) return;
+    dirKey=key;
+    var box=$('#navDir'); box.textContent='';
+    (fr.refs||[]).forEach(function(r){
+      var b=document.createElement('span');
+      b.className='rb'+(/^E\d/.test(r)?' e':/^A\d/.test(r)?' a':'');
+      b.textContent=r; box.appendChild(b);
+    });
+    if(fr.d) box.appendChild(document.createTextNode(fr.d));
+  }
+  // Flèche de la manœuvre suivante quand elle suit de près (même seuil que la voix).
+  function thenArrow(k){
+    var step=navSteps[k], next=navSteps[k+1];
+    if(!step || !next || step.maneuver.type==='arrive' || (step.distance||0) >= CHAIN_GAP) return '';
+    return maneuverFr(next).a;
   }
   function updateEta(remain){
     $('#navRemain').textContent=fmtKm(remain);

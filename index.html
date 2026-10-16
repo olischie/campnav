@@ -295,6 +295,9 @@
   #navBottom .nb-cell{flex:1;min-width:0;display:flex;flex-direction:column;}
   #navBottom .k{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);white-space:nowrap;}
   #navBottom .v{font-size:18px;margin-top:1px;white-space:nowrap;}
+  /* Temps restant en rouge tant qu'un ralentissement reste devant */
+  #navBottom .v.jam{ color:var(--red); font-weight:700; }
+  body.light #navBottom .v.jam{ color:#dc2626; }
   #navBottom .navquit{
     flex:none;background:var(--red);border:0;color:#fff;font-weight:700;font-size:15px;
     padding:13px 18px;border-radius:12px;
@@ -1700,6 +1703,8 @@
             '&traffic=true&travelMode='+v.mode+v.qs+
             (avoidTolls?'&avoid=tollRoads':'')+
             '&instructionsType=coded&language=fr-FR'+
+            // Bouchons du trajet : position et retard de chacun.
+            '&sectionType=traffic'+
             // Cap du véhicule au départ (même rôle que pour OSRM).
             (o.heading!=null ? '&vehicleHeading='+Math.round((o.heading+360)%360) : '');
     return fetchTimeout(url, null, ms).then(function(r){
@@ -1725,10 +1730,17 @@
           // Direction indiquée sur les panneaux (« Namur », « Liège - Aachen »).
           return { distance:dist, name:(ins.street||''), maneuver:mv, towards:(ins.signpostText||'') };
         });
+        // Ralentissements : indices de début et de fin dans `coords`, retard en secondes.
+        var traffic=(rt.sections||[]).filter(function(sc){
+          return sc.sectionType==='TRAFFIC' && sc.delayInSeconds>0;
+        }).map(function(sc){
+          return { i0:sc.startPointIndex, i1:sc.endPointIndex, delay:sc.delayInSeconds };
+        });
         return {
           coords: coords,
           distance: rt.summary.lengthInMeters,
           duration: rt.summary.travelTimeInSeconds,
+          traffic: traffic,
           steps: steps, engine:'tomtom', gabarit:v.gabarit, tollFree:avoidTolls
         };
       });
@@ -1895,6 +1907,7 @@
     warnLayer.clearLayers();
     lastRoute=rt; routeCoords=rt.coords;
     routeXY = buildCum(buildXY(routeCoords));
+    trafficToAlong(rt);
     navIdx = 1;
     routeLayer = drawRoute(rt.coords);
     if(fit) fitCoords(rt.coords);
@@ -2916,6 +2929,23 @@
       $('#recenter').classList.add('show');
     }
   }
+  // En roulant, la caméra est replacée à chaque image, et MapLibre annule tout
+  // geste en cours à chaque déplacement de caméra : un glissement ou un
+  // pincement n'avait jamais le temps de démarrer. Dès qu'un doigt (ou la
+  // souris) se pose sur la carte, la caméra se fige donc le temps du geste ;
+  // si le doigt se relève sans avoir bougé, le suivi reprend tout seul.
+  var gestureHold = false;
+  (function(){
+    var cont = map.getCanvasContainer();
+    cont.addEventListener('touchstart', function(){ if(navActive) gestureHold=true; }, { passive:true });
+    function release(e){ if(!e.touches || !e.touches.length) gestureHold=false; }
+    cont.addEventListener('touchend', release);
+    cont.addEventListener('touchcancel', release);
+    cont.addEventListener('mousedown', function(){ if(navActive) gestureHold=true; });
+    window.addEventListener('mouseup', function(){ gestureHold=false; });
+    // Molette (ordinateur) : le zoom suspend le suivi tout de suite.
+    cont.addEventListener('wheel', function(e){ userMoved({ originalEvent:e }); }, { passive:true });
+  })();
   map.on('dragstart', userMoved);
   map.on('zoomstart', userMoved);
   map.on('rotatestart', userMoved);
@@ -3624,7 +3654,7 @@
       navMarker.setRotation(dispBearing!=null ? dispBearing : 0);
     }
 
-    if(following && now >= camHoldUntil){
+    if(following && !gestureHold && now >= camHoldUntil){
       var zt = lastAutoZoom!=null ? lastAutoZoom : 16;
       if(camZoom==null) camZoom = map.getZoom();
       camZoom += (zt-camZoom)*(1-Math.exp(-fdt/600));
@@ -3742,6 +3772,7 @@
   function stopNav(){
     navActive=false; following=true;
     document.body.classList.remove('nav');
+    $('#navEta').classList.remove('jam');
     $('#recenter').classList.remove('show');
     releaseWake();
     if(navWatch!=null){ navigator.geolocation.clearWatch(navWatch); navWatch=null; }
@@ -4039,15 +4070,17 @@
   function updateNavDisplay(d, fr, remain){
     if(fr){ $('#navArrow').textContent=fr.a; $('#navInstr').textContent=fr.t; }
     $('#navDist').textContent = d==null?'—':(d<1000?Math.round(d/10)*10+' m':fmtKm(d));
-    if(remain!=null){
-      $('#navRemain').textContent=fmtKm(remain);
-      // ETA proportionnelle à la durée réelle de l'itinéraire, pas à une vitesse forfaitaire
-      var secs;
-      if(lastRoute && lastRoute.distance>0) secs = lastRoute.duration * (remain/lastRoute.distance);
-      else secs = remain / (50000/3600);
-      $('#navEta').textContent=fmtDur(secs);
-      $('#navClock').textContent=clockAt(secs);
-    }
+    if(remain!=null) updateEta(remain);
+  }
+  function updateEta(remain){
+    $('#navRemain').textContent=fmtKm(remain);
+    // ETA proportionnelle à la durée réelle de l'itinéraire, pas à une vitesse forfaitaire
+    var secs;
+    if(lastRoute && lastRoute.distance>0) secs = lastRoute.duration * (remain/lastRoute.distance);
+    else secs = remain / (50000/3600);
+    $('#navEta').textContent=fmtDur(secs);
+    $('#navEta').classList.toggle('jam', trafficAhead() >= JAM_RED_S);
+    $('#navClock').textContent=clockAt(secs);
   }
 
   // Bascule la navigation sur un nouvel itinéraire (recalcul ou alternative trafic)
@@ -4055,6 +4088,7 @@
     hideAltBanner();          // toute proposition en attente devient caduque
     lastRoute=rt; routeCoords=rt.coords;
     routeXY = buildCum(buildXY(routeCoords));
+    trafficToAlong(rt);
     navIdx=1;
     clearRouteLayers();
     routeLayer = drawRoute(routeCoords);
@@ -4108,6 +4142,57 @@
     return lastRoute.duration * (remainingMeters()/lastRoute.distance);
   }
 
+  // ---------- Ralentissements sur le trajet (TomTom) ----------
+  // Chaque ralentissement est rangé en distances depuis le départ du tracé
+  // ({a0, a1, d} : début, fin, retard en s). On ne compte que ce qui reste
+  // devant le véhicule ; un bouchon déjà entamé ne compte plus que pour sa
+  // partie restante. Au-delà d'une minute de retard cumulé, le temps restant
+  // passe en rouge. Sans TomTom, aucun trafic n'est connu : pas de rouge.
+  var JAM_RED_S = 60;
+  function trafficToAlong(rt){
+    if(!rt || !routeXY || !routeXY.cum) return;
+    var c=routeXY.cum, n=c.length-1;
+    rt.trafAlong = (rt.traffic||[]).map(function(t){
+      return { a0:c[Math.min(n, Math.max(0, t.i0))], a1:c[Math.min(n, Math.max(0, t.i1))], d:t.delay };
+    });
+  }
+  function trafficAhead(){
+    if(!lastRoute || !lastRoute.trafAlong || !lastRoute.trafAlong.length) return 0;
+    var cur = matchAlong!=null ? matchAlong : (shown && shown.along!=null ? shown.along : 0);
+    var sum=0;
+    lastRoute.trafAlong.forEach(function(t){
+      if(t.a1 <= cur) return;                       // déjà passé
+      var len=t.a1-t.a0;
+      sum += (len>0 && cur>t.a0) ? t.d*(t.a1-cur)/len : t.d;
+    });
+    return sum;
+  }
+  // Le trajet frais calculé depuis la position actuelle suit-il le même chemin
+  // que l'itinéraire en cours ? (longueur voisine et points intermédiaires sur le tracé)
+  function sameAsCurrent(cand, remM){
+    if(!cand || !cand.coords || cand.coords.length<2 || !routeXY) return false;
+    if(Math.abs(cand.distance-remM) > Math.max(250, remM*0.03)) return false;
+    for(var q=1;q<=5;q++){
+      var c=cand.coords[Math.floor((cand.coords.length-1)*q/6)];
+      var r=nearestOn(routeXY, c[0], c[1]);
+      if(!r || r.d > 40) return false;
+    }
+    return true;
+  }
+  // Même chemin : on reprend les ralentissements et la durée à jour, sans
+  // toucher au guidage. Les distances du trajet frais partent de la position
+  // actuelle : on les décale de la progression déjà faite.
+  function refreshTraffic(cand, remM){
+    var base = matchAlong!=null ? matchAlong : 0;
+    var cc = buildCum(buildXY(cand.coords)).cum, n=cc.length-1;
+    lastRoute.trafAlong = (cand.traffic||[]).map(function(t){
+      return { a0:base+cc[Math.min(n,t.i0)], a1:base+cc[Math.min(n,t.i1)], d:t.delay };
+    });
+    // L'heure d'arrivée se cale sur la durée fraîche pour la partie restante.
+    if(remM > 100 && lastRoute.distance > 0) lastRoute.duration = cand.duration * lastRoute.distance / remM;
+    updateEta(remM);
+  }
+
   function hideAltBanner(){
     altCand=null;
     if(altHideTimer){ clearTimeout(altHideTimer); altHideTimer=null; }
@@ -4117,16 +4202,19 @@
 
   function checkTrafficAlternative(){
     if(!navActive || altBusy || !ttKey || !navLast || !pts.to) return;
-    if(Date.now() < altSnooze) return;
     if(altCand) return;                       // une proposition est déjà à l'écran
-    var curRem = remainingSeconds();
-    if(curRem < ALT_MIN_GAIN + 120) return;   // trop court pour espérer un tel gain
+    var curRem = remainingSeconds(), remM = remainingMeters();
+    // Le même appel sert aussi à remettre à jour les ralentissements : il a donc
+    // lieu même quand il est trop tard pour proposer un autre trajet.
+    var mayPropose = Date.now() >= altSnooze && curRem >= ALT_MIN_GAIN + 120;
     altBusy=true;
     tomtomFetch({ lat:navLast.lat, lng:navLast.lng, heading:movingHeading() }, 8000)
       .then(function(routes){
         altBusy=false;
         if(!navActive || !routes || !routes.length) return;
         var cand=routes[0];
+        if(sameAsCurrent(cand, remM)){ refreshTraffic(cand, remM); return; }
+        if(!mayPropose) return;
         var gain = curRem - cand.duration;
         if(gain < ALT_MIN_GAIN || gain/curRem < ALT_MIN_RATIO) return;
         altCand=cand;

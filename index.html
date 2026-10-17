@@ -700,6 +700,10 @@
         <div class="lbl">🏙️ Bâtiments en 3D<small>En ville, à fort zoom, semi-transparents (fond OpenFreeMap)</small></div>
         <button class="toggle" id="b3dChip" data-on="0" role="switch" aria-checked="false" aria-label="Bâtiments en 3D"></button>
       </div>
+      <div class="optrow" style="border-top:0">
+        <div class="lbl">🌗 Jour / nuit automatique<small>Fond nuit du coucher au lever du soleil, selon votre position. Le bouton 🌙 / ☀️ impose l'autre mode jusqu'au prochain lever ou coucher.</small></div>
+        <button class="toggle" id="autoNightChip" data-on="1" role="switch" aria-checked="true" aria-label="Jour / nuit automatique"></button>
+      </div>
 
       <label class="lb">Luminosité de la carte</label>
       <div class="slider-row">
@@ -769,10 +773,6 @@
 <script>
 (function(){
   "use strict";
-  // Appli iPhone (coque Capacitor) : native.js, ajouté seulement dans l'appli,
-  // expose le GPS en arrière-plan, la voix native et l'écran allumé. Dans un
-  // navigateur, NATIVE vaut null et tout passe par les API web habituelles.
-  var NATIVE = (window.CCNative && window.CCNative.isNative) ? window.CCNative : null;
   if (window.__ccNoMap) return;   // rien à initialiser sans MapLibre
 
   // Instances Overpass. Les serveurs publics renvoient un 429 / 504 (corps HTML,
@@ -922,10 +922,18 @@
   // Fond mémorisé, lu avant de créer la carte : elle démarre directement dessus
   // au lieu de charger le fond clair puis de changer aussitôt.
   try{
+    var savedLight = localStorage.getItem('cc_lightbase');
+    if(savedLight && BASEMAPS[savedLight] && !BASEMAPS[savedLight].dark) prevLightBase = savedLight;
     var savedBase = localStorage.getItem('cc_base');
     if(savedBase && BASEMAPS[savedBase]){
       currentBase = savedBase;
       if(!BASEMAPS[savedBase].dark) prevLightBase = savedBase;
+    }
+    // Jour / nuit automatique : la carte démarre d'emblée sur le bon fond
+    // (calculé à la dernière position connue, Bruxelles à défaut).
+    if(localStorage.getItem('cc_autonight') !== '0' && !themeHoldValid(readThemeHold(), startPhase())){
+      var wantDark = startPhase()==='night';
+      if(wantDark !== !!BASEMAPS[currentBase].dark) currentBase = wantDark ? 'dark' : prevLightBase;
     }
   }catch(e){}
 
@@ -2860,7 +2868,12 @@
     });
     // Boutons jour/nuit (carte et navigation) : chacun propose l'inverse de l'état courant
     syncThemeBtns();
-    if(save && HAS_LS){ try{ localStorage.setItem('cc_base', key); }catch(e){} }
+    if(save && HAS_LS){
+      try{
+        localStorage.setItem('cc_base', key);
+        if(!BASEMAPS[key].dark) localStorage.setItem('cc_lightbase', key);
+      }catch(e){}
+    }
   }
 
   function syncThemeBtns(){
@@ -2875,8 +2888,84 @@
   // Bascule entre le fond nuit et le dernier fond clair utilisé. Partagé par le
   // bouton de la carte d'accueil et celui du bandeau de navigation.
   function toggleTheme(){
-    setBasemap(isDark() ? prevLightBase : 'dark', true);
+    chooseBase(isDark() ? prevLightBase : 'dark');
   }
+
+  // ---------- Jour / nuit automatique ----------
+  // Fond nuit du coucher au lever du soleil (soleil sous l'horizon, réfraction
+  // comprise, comme les heures officielles), calculé à votre position. Un choix
+  // manuel (bouton 🌙 / ☀️ ou fond choisi dans Options) qui contredit l'heure est
+  // respecté jusqu'au prochain lever ou coucher, puis l'automatique reprend.
+  // Hauteur du soleil en degrés (formules de SunCalc, V. Agafonkin, BSD) ;
+  // précision de l'ordre de la minute sur les heures de lever et de coucher.
+  function sunAltitude(ms, lat, lng){
+    var rad=Math.PI/180, d=ms/86400000 - 10957.5;            // jours depuis le 1/1/2000 à midi TU
+    var M=rad*(357.5291 + 0.98560028*d);
+    var C=rad*(1.9148*Math.sin(M) + 0.02*Math.sin(2*M) + 0.0003*Math.sin(3*M));
+    var L=M + C + rad*102.9372 + Math.PI, e=rad*23.4397;
+    var dec=Math.asin(Math.sin(e)*Math.sin(L)), ra=Math.atan2(Math.sin(L)*Math.cos(e), Math.cos(L));
+    var H=rad*(280.16 + 360.9856235*d) + rad*lng - ra, phi=rad*lat;
+    return Math.asin(Math.sin(phi)*Math.sin(dec) + Math.cos(phi)*Math.cos(dec)*Math.cos(H))/rad;
+  }
+  function phaseAt(lat, lng){ return sunAltitude(Date.now(), lat, lng) > -0.833 ? 'day' : 'night'; }
+  // Au démarrage, avant toute position : la dernière connue, sinon Bruxelles.
+  function startPhase(){
+    var p=null;
+    try{ p=JSON.parse(localStorage.getItem('cc_sunpos')||'null'); }catch(e){}
+    return (p && isFinite(p.lat) && isFinite(p.lng)) ? phaseAt(p.lat, p.lng) : phaseAt(50.85, 4.35);
+  }
+  function sunPhase(){
+    var p = navLast || lastPos;
+    if(p){
+      try{ localStorage.setItem('cc_sunpos', JSON.stringify({ lat:+p.lat.toFixed(2), lng:+p.lng.toFixed(2) })); }catch(e){}
+      return phaseAt(p.lat, p.lng);
+    }
+    var c = map.getCenter();
+    return phaseAt(c.lat, c.lng);
+  }
+  function readThemeHold(){ try{ return JSON.parse(localStorage.getItem('cc_theme_hold')||'null'); }catch(e){ return null; } }
+  // Un choix manuel vaut tant que dure la période (jour ou nuit) où il a été fait.
+  function themeHoldValid(h, phase){ return !!(h && h.phase===phase && Date.now()-h.t < 16*3600000); }
+  var autoNight = true;
+  try{ autoNight = localStorage.getItem('cc_autonight') !== '0'; }catch(e){}
+  function chooseBase(key){
+    setBasemap(key, true);
+    if(!autoNight) return;
+    var ph = sunPhase();
+    try{
+      if((ph==='night') !== isDark()) localStorage.setItem('cc_theme_hold', JSON.stringify({ phase:ph, t:Date.now() }));
+      else localStorage.removeItem('cc_theme_hold');
+    }catch(e){}
+  }
+  function autoTheme(){
+    if(!autoNight) return;
+    var ph = sunPhase();
+    if(themeHoldValid(readThemeHold(), ph)) return;
+    try{ localStorage.removeItem('cc_theme_hold'); }catch(e){}
+    var wantDark = ph==='night';
+    if(wantDark !== isDark()) setBasemap(wantDark ? 'dark' : prevLightBase, true);
+  }
+  setInterval(autoTheme, 60000);
+  setTimeout(autoTheme, 4000);   // dès que la position réelle est connue
+  document.addEventListener('visibilitychange', function(){ if(document.visibilityState==='visible') autoTheme(); });
+  (function(){
+    var t = $('#autoNightChip');
+    function sync(){
+      t.classList.toggle('on', autoNight);
+      t.dataset.on = autoNight ? '1' : '0';
+      t.setAttribute('aria-checked', autoNight ? 'true' : 'false');
+    }
+    sync();
+    t.addEventListener('click', function(){
+      autoNight = !autoNight;
+      sync();
+      try{
+        localStorage.setItem('cc_autonight', autoNight ? '1' : '0');
+        localStorage.removeItem('cc_theme_hold');
+      }catch(e){}
+      if(autoNight){ autoTheme(); toast('🌗 Jour / nuit automatique activé.', 2500); }
+    });
+  })();
   $('#navTheme').addEventListener('click', toggleTheme);
   $('#themeBtn').addEventListener('click', toggleTheme);
 
@@ -2983,7 +3072,7 @@
       el.className='chip'+(key===currentBase?' on':'');
       el.dataset.base=key;
       el.innerHTML='<b>'+esc(b.name)+'</b><small>'+esc(b.sub)+'</small>';
-      el.addEventListener('click', function(){ setBasemap(key, true); });
+      el.addEventListener('click', function(){ chooseBase(key); });
       host.appendChild(el);
     });
     // Le fond mémorisé a déjà servi à créer la carte : on ne recharge le style
@@ -3334,7 +3423,6 @@
     }catch(e){}
   }
   function requestWake(){
-    if(NATIVE && NATIVE.KeepAwake){ NATIVE.KeepAwake.keepAwake().catch(function(){}); return; }
     if('wakeLock' in navigator){
       navigator.wakeLock.request('screen').then(function(w){
         wakeLock=w;
@@ -3344,12 +3432,11 @@
     if(IS_IOS) startAwakeVideo();              // sur iPhone, toujours en renfort
   }
   function releaseWake(){
-    if(NATIVE && NATIVE.KeepAwake){ NATIVE.KeepAwake.allowSleep().catch(function(){}); return; }
     try{ if(wakeLock){ wakeLock.release(); wakeLock=null; } }catch(e){}
     try{ if(awakeVideo) awakeVideo.pause(); }catch(e){}
   }
   document.addEventListener('visibilitychange', function(){
-    if(NATIVE || !navActive || document.visibilityState!=='visible') return;
+    if(!navActive || document.visibilityState!=='visible') return;
     if(!wakeLock) requestWake();
     else if(IS_IOS) startAwakeVideo();
     // Retour sur l'appli : la voix a pu être suspendue par le système.
@@ -3357,7 +3444,7 @@
   });
   // iPhone : chaque toucher pendant le guidage relance au besoin la vidéo et la voix.
   document.addEventListener('touchend', function(){
-    if(NATIVE || !navActive) return;
+    if(!navActive) return;
     if(IS_IOS && awakeVideo && awakeVideo.paused) startAwakeVideo();
     try{ if(window.speechSynthesis && window.speechSynthesis.paused) window.speechSynthesis.resume(); }catch(e){}
   }, { passive:true });
@@ -3438,34 +3525,7 @@
   // - une voix choisie qui échoue (voix « Internet » hors réseau) remplacée par
   //   la voix par défaut.
   var sayQueue = [], sayCur = null, sayTimer = null, sayLive = [];
-  // Appli iPhone : voix native de l'iPhone. Elle parle aussi écran verrouillé et
-  // baisse la musique ou la radio le temps de l'annonce. On enchaîne sur la fin
-  // de chaque phrase sans minuterie (les minuteries dorment en arrière-plan) ;
-  // le délai de garde ne sert que si le signal de fin se perd.
-  function sayNextNative(){
-    if(sayCur || !sayQueue.length) return;
-    var item = sayQueue.shift(), token = {};
-    sayCur = token;
-    var opts = { text:item.txt, lang:'fr-FR', rate:voiceRate, pitch:1, volume:1,
-                 category:'playback', queueStrategy:1 };
-    var v = item.noVoice ? null : pickedVoice();
-    if(v && v._idx!=null) opts.voice = v._idx;
-    var finished = false;
-    function done(){
-      if(finished) return;
-      finished = true;
-      if(sayTimer){ clearTimeout(sayTimer); sayTimer = null; }
-      if(sayCur === token){ sayCur = null; sayNext(); }
-    }
-    sayTimer = setTimeout(done, Math.max(4000, item.txt.length * 90 / Math.max(0.5, voiceRate)) + 2500);
-    NATIVE.TTS.speak(opts).then(done, function(){
-      // Voix choisie indisponible : nouvel essai avec la voix par défaut.
-      if(v && !item.noVoice && !finished){ sayQueue.unshift({ txt:item.txt, noVoice:true }); }
-      done();
-    });
-  }
   function sayNext(){
-    if(NATIVE && NATIVE.TTS) return sayNextNative();
     if(sayCur || !sayQueue.length || !('speechSynthesis' in window)) return;
     var item = sayQueue.shift(), ss = window.speechSynthesis;
     var u = new SpeechSynthesisUtterance(item.txt);
@@ -3499,20 +3559,7 @@
   // `urgent` (arrivée, alerte de gabarit, recalcul) passe devant tout le reste.
   // `force` : parle même si la voix est coupée (bouton « Écouter la voix »).
   function speak(txt, urgent, force){
-    if(!voiceOn && !force) return;
-    if(NATIVE && NATIVE.TTS){
-      if(urgent){
-        sayQueue = [{ txt:txt }]; sayCur = null;
-        if(sayTimer){ clearTimeout(sayTimer); sayTimer = null; }
-        NATIVE.TTS.stop().catch(function(){}).then(sayNext);
-      } else {
-        sayQueue.push({ txt:txt });
-        if(sayQueue.length > 3) sayQueue = sayQueue.slice(-3);
-        sayNext();
-      }
-      return;
-    }
-    if(!('speechSynthesis' in window)) return;
+    if((!voiceOn && !force) || !('speechSynthesis' in window)) return;
     if(urgent){
       sayQueue = [{ txt:txt }];
       if(sayCur){
@@ -3537,7 +3584,6 @@
   function sayStop(){
     sayQueue = []; sayCur = null; sayLive = [];
     if(sayTimer){ clearTimeout(sayTimer); sayTimer = null; }
-    if(NATIVE && NATIVE.TTS){ NATIVE.TTS.stop().catch(function(){}); return; }
     try{ window.speechSynthesis.cancel(); }catch(e){}
   }
 
@@ -3550,10 +3596,7 @@
     var vr = parseInt(localStorage.getItem('cc_rate')||'', 10);
     if(vr>=70 && vr<=140) voiceRate = vr/100;
   }catch(e){}
-  // Voix natives de l'iPhone (appli) : on garde leur rang, que le moteur attend.
-  var nativeVoices = [];
   function frVoices(){
-    if(NATIVE && NATIVE.TTS) return nativeVoices.filter(function(v){ return /^fr/i.test(v.lang||''); });
     if(!('speechSynthesis' in window)) return [];
     return (window.speechSynthesis.getVoices()||[]).filter(function(v){ return /^fr/i.test(v.lang||''); });
   }
@@ -3577,14 +3620,7 @@
     var sel=$('#voiceSel'), r=$('#rateRange'), out=$('#rateOut');
     if(!sel) return;
     fillVoiceList();
-    if(NATIVE && NATIVE.TTS){
-      NATIVE.TTS.getSupportedVoices().then(function(r){
-        nativeVoices = ((r && r.voices) || []).map(function(v, i){
-          return { voiceURI:v.voiceURI || v.name, name:v.name, lang:v.lang, localService:v.localService, _idx:i };
-        });
-        fillVoiceList();
-      }).catch(function(){});
-    } else if('speechSynthesis' in window){
+    if('speechSynthesis' in window){
       try{ window.speechSynthesis.addEventListener('voiceschanged', fillVoiceList); }catch(e){}
       setTimeout(fillVoiceList, 800);      // certains navigateurs ne préviennent pas
     }
@@ -3596,7 +3632,7 @@
     r.addEventListener('input', function(){ voiceRate = (parseInt(r.value,10)||100)/100; out.textContent = r.value+' %'; });
     r.addEventListener('change', function(){ try{ localStorage.setItem('cc_rate', r.value); }catch(e){} });
     $('#voiceTest').addEventListener('click', function(){
-      if(!NATIVE && !('speechSynthesis' in window)){ toast('La synthèse vocale n\'est pas disponible dans ce navigateur.'); return; }
+      if(!('speechSynthesis' in window)){ toast('La synthèse vocale n\'est pas disponible dans ce navigateur.'); return; }
       speak('Dans 800 mètres, au rond-point, prenez la deuxième sortie, direction Namur.', true, true);
     });
   })();
@@ -3685,7 +3721,7 @@
   $('#navVoice').addEventListener('click', function(){
     voiceOn=!voiceOn; this.classList.toggle('off',!voiceOn);
     this.textContent=voiceOn?'🔊':'🔇';
-    if(!voiceOn && (NATIVE || 'speechSynthesis' in window)) sayStop();
+    if(!voiceOn && 'speechSynthesis' in window) sayStop();
   });
 
   // ---------- Caméra de navigation ----------
@@ -3959,35 +3995,10 @@
     hideAltBanner(); altSnooze=0; altBusy=false;
     if(altTimer){ clearInterval(altTimer); altTimer=null; }
     if(ttKey) altTimer=setInterval(checkTrafficAlternative, ALT_PERIOD);
-    function gpsLost(){
+    navWatch=navigator.geolocation.watchPosition(onNavPos, function(){
       var t=Date.now();
       if(t-lastGpsWarn>20000){ lastGpsWarn=t; toast('Signal GPS perdu…',1500); }
-    }
-    if(NATIVE && NATIVE.BG){
-      // Appli iPhone : le GPS continue écran verrouillé ou appli en arrière-plan
-      // (bandeau bleu en haut de l'écran pendant ce temps).
-      var w = navWatch = { native:true, id:null };
-      NATIVE.BG.addWatcher({ backgroundTitle:'campnav', backgroundMessage:'Guidage en cours',
-                             requestPermissions:true, stale:false, distanceFilter:0 },
-        function(loc, err){
-          if(navWatch!==w) return;
-          if(err){
-            if(err.code==='NOT_AUTHORIZED') toast('Autorisez la localisation pour campnav dans Réglages.',5000);
-            else gpsLost();
-            return;
-          }
-          if(!loc) return;
-          onNavPos({ coords:{ latitude:loc.latitude, longitude:loc.longitude, accuracy:loc.accuracy,
-                              speed:loc.speed, heading:loc.bearing, altitude:loc.altitude },
-                     timestamp:loc.time || Date.now() });
-        }).then(function(id){
-          if(navWatch===w) w.id=id;
-          else NATIVE.BG.removeWatcher({ id:id }).catch(function(){});
-        }).catch(gpsLost);
-      return;
-    }
-    navWatch=navigator.geolocation.watchPosition(onNavPos, gpsLost,
-      { enableHighAccuracy:true, maximumAge:1000, timeout:12000 });
+    }, { enableHighAccuracy:true, maximumAge:1000, timeout:12000 });
   }
 
   function stopNav(){
@@ -3996,14 +4007,10 @@
     $('#navEta').classList.remove('jam');
     $('#recenter').classList.remove('show');
     releaseWake();
-    if(navWatch!=null){
-      if(navWatch.native){ if(navWatch.id!=null) NATIVE.BG.removeWatcher({ id:navWatch.id }).catch(function(){}); }
-      else navigator.geolocation.clearWatch(navWatch);
-      navWatch=null;
-    }
+    if(navWatch!=null){ navigator.geolocation.clearWatch(navWatch); navWatch=null; }
     if(navMarker){ navMarker.remove(); navMarker=null; }
     stopNavLoop();
-    if(NATIVE || 'speechSynthesis' in window) sayStop();
+    if('speechSynthesis' in window) sayStop();
     if(altTimer){ clearInterval(altTimer); altTimer=null; }
     hideAltBanner();
     // Retour à la carte d'accueil : nord en haut, vue de dessus, sans le décalage

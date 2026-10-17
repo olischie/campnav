@@ -4,7 +4,7 @@ Application web de navigation pensée pour les camping-cars, **optimisée mobile
 
 ## ✨ Fonctionnalités
 
-- **Carte vectorielle** plein écran (**MapLibre GL JS**, fond **OpenFreeMap** gratuit et sans clé, noms en français), avec **choix du fond de carte** dans l'onglet Options : **Clair**, **Contraste** (niveaux de gris) et **Nuit** (fond sombre dont les routes ont été éclaircies pour rester bien visibles), plus un **curseur de luminosité** qui n'agit que sur le fond, jamais sur le tracé, et un interrupteur **Bâtiments en 3D** (éteint par défaut : en ville, à fort zoom, semi-transparents pour laisser deviner les rues). Si OpenFreeMap ne répond pas, l'appli bascule d'elle-même sur **Protomaps** (clé facultative), puis sur les tuiles **OpenStreetMap** classiques.
+- **Carte vectorielle** plein écran (**MapLibre GL JS**, fond **OpenFreeMap** gratuit et sans clé, noms en français), avec **choix du fond de carte** dans l'onglet Options : **Clair**, **Contraste** (niveaux de gris) et **Nuit** (fond sombre dont les routes ont été éclaircies pour rester bien visibles), avec **passage automatique jour / nuit** au coucher et au lever du soleil à votre position (le bouton 🌙 / ☀️ impose l'autre mode jusqu'au prochain lever ou coucher ; désactivable dans Options), plus un **curseur de luminosité** qui n'agit que sur le fond, jamais sur le tracé, et un interrupteur **Bâtiments en 3D** (éteint par défaut : en ville, à fort zoom, semi-transparents pour laisser deviner les rues). Si OpenFreeMap ne répond pas, l'appli bascule d'elle-même sur **Protomaps** (clé facultative), puis sur les tuiles **OpenStreetMap** classiques.
 - **Recherche d'adresses et de lieux** (Nominatim / OpenStreetMap), **classée du plus proche au plus éloigné** de votre position (ou du centre de la carte si vous regardez ailleurs), distance affichée. Quand on cherche une ville, une commune ou un village, **son centre passe en tête de liste** (mention « centre-ville », un seul : les doublons de la même ville sont retirés, une homonyme lointaine reste plus bas), même si une rue du même nom est plus proche. La recherche porte d'abord sur un rayon d'environ 5 km (le lieu le plus proche s'affiche aussitôt), puis partout (les villes et lieux lointains), puis 30 km, à une seconde d'intervalle (limite de Nominatim).
 - **Itinéraire** point à point : **un seul trajet**, équilibrant durée et distance, avec une option **« éviter les péages »**.
 - **Profil du véhicule** (hauteur, poids, largeur, longueur) utilisé de deux façons :
@@ -39,36 +39,6 @@ L'appli est une **PWA** : installable et utilisable hors-ligne, sans passer par 
 **Mode hors-ligne** : un *service worker* met en cache la coquille de l'appli, les **tuiles de carte déjà consultées** et les polices du fond de carte ; les styles OpenFreeMap sont gardés dans le navigateur pour un démarrage immédiat. Les zones que vous avez parcourues restent affichables sans réseau, noms de rues compris. En revanche, la recherche d'adresses, le calcul d'itinéraire, les POI et le trafic nécessitent une connexion.
 
 > ⚠️ Le mode hors-ligne et l'installation ne fonctionnent qu'en **HTTPS**, pas en ouverture locale `file://`.
-
-## 🍏 Appli iPhone (gratuite, installée depuis Linux)
-
-Une version « vraie appli » existe à côté de la version web. Le code est le même, mais le **guidage continue écran verrouillé** (GPS et voix), la voix **baisse la musique ou la radio** pendant les annonces et l'écran reste allumé sans astuce. Le bandeau bleu en haut de l'écran signale que le GPS tourne en arrière-plan.
-
-Elle est fabriquée automatiquement par GitHub (workflow « Appli iPhone ») à chaque modification et publiée dans la release [`iphone`](https://github.com/olischie/campnav/releases/tag/iphone) :
-- le fichier d'installation : `https://github.com/olischie/campnav/releases/download/iphone/campnav.ipa`
-- la source SideStore : `https://github.com/olischie/campnav/releases/download/iphone/source.json`
-
-L'installation passe par **SideStore**, avec un identifiant Apple ordinaire (gratuit). L'ordinateur ne sert qu'une fois.
-
-**1. Une seule fois, sur l'ordinateur Linux**
-1. Installez `usbmuxd` (paquet de votre distribution, souvent déjà présent) et téléchargez **iloader** sur [iloader.app](https://iloader.app/) (.deb, .rpm ou AppImage).
-2. Sur l'iPhone, installez l'appli gratuite **LocalDevVPN** depuis l'App Store.
-3. Branchez l'iPhone en USB, acceptez « Faire confiance à cet ordinateur ».
-4. Ouvrez iloader, connectez-vous avec votre identifiant Apple, choisissez l'iPhone, puis **Install SideStore (Stable)**.
-
-**2. Sur l'iPhone**
-1. Réglages → Général → **VPN et gestion de l'appareil** → votre identifiant Apple → **Faire confiance**.
-2. Réglages → Confidentialité et sécurité → tout en bas, activez le **mode développeur** (l'iPhone redémarre).
-3. Ouvrez LocalDevVPN → **Connect**, puis ouvrez SideStore et connectez-vous avec le même identifiant Apple. Dans **My Apps**, touchez le compteur « 7 DAYS » de SideStore pour terminer la mise en place.
-4. Dans SideStore, onglet **Sources** → **+** → collez l'adresse de la source ci-dessus, puis installez **campnav**. (Autre possibilité : téléchargez `campnav.ipa` dans Safari, puis **My Apps** → **+** → choisissez le fichier.)
-5. Au premier lancement, autorisez la localisation.
-
-**Chaque semaine** : les applis installées ainsi expirent au bout de 7 jours (règle d'Apple pour les comptes gratuits). Le renouvellement se fait sur l'iPhone, sans ordinateur : en Wi-Fi, LocalDevVPN activé, ouvrez SideStore → **My Apps** → **Refresh All**. Avant un voyage, renouvelez juste avant de partir pour avoir 7 jours devant vous. Une nouvelle version de campnav apparaît dans SideStore comme une mise à jour.
-
-À savoir :
-- l'appli a sa propre mémoire : les clés TomTom, Openrouteservice et Protomaps, les favoris et les véhicules sont à ressaisir une fois dans l'onglet Options ;
-- une connexion reste nécessaire pour la carte, les recherches et le calcul d'itinéraire, comme pour la version web ;
-- le dossier `app-iphone/` contient la coque (Capacitor 7) ; le pont `native.js` n'existe que dans l'appli, la version web ne change pas.
 
 ## 🗺️ Fond de carte
 

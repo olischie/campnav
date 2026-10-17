@@ -44,6 +44,8 @@ L'appli est une **PWA** : installable et utilisable hors-ligne, sans passer par 
 
 Une version « vraie appli » existe à côté de la version web. Le code est le même, mais le **guidage continue écran verrouillé** (GPS et voix), la voix **baisse la musique ou la radio** pendant les annonces et l'écran reste allumé sans astuce. Le bandeau bleu en haut de l'écran signale que le GPS tourne en arrière-plan.
 
+Dans **Options → Guidage vocal**, deux boutons choisissent la **sortie du son** : **Autoradio / Bluetooth** (la sortie d'iOS : l'autoradio s'il est connecté en Bluetooth ou par câble, sinon le haut-parleur) ou **Haut-parleur du téléphone** (même si l'autoradio est connecté). Pour ce second choix, iOS demande une fois l'accès au micro : c'est le seul moyen qu'il laisse pour forcer le haut-parleur, et campnav n'enregistre rien. Dans Safari, ces boutons sont grisés : une page web ne peut pas choisir la sortie du son.
+
 Elle est fabriquée automatiquement par GitHub (workflow « Appli iPhone ») à chaque modification et publiée dans la release [`iphone`](https://github.com/olischie/campnav/releases/tag/iphone) :
 - le fichier d'installation : `https://github.com/olischie/campnav/releases/download/iphone/campnav.ipa`
 - la source SideStore : `https://github.com/olischie/campnav/releases/download/iphone/source.json`

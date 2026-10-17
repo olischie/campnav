@@ -92,6 +92,8 @@
   .suggest .row:active{background:var(--panel-2);}
   .suggest .row small{color:var(--muted); display:block; margin-top:2px;}
   .suggest{ max-height:58dvh; overflow-y:auto; }
+  .suggest .row .ctag{ display:inline-block; margin-left:6px; padding:1px 7px; border-radius:8px;
+    background:var(--blue); color:#fff; font-size:11px; font-weight:600; vertical-align:1px; }
   .suggest .row .dist{ float:right; margin-left:8px; font-size:12px; color:var(--blue); font-weight:600; }
   .suggest .row.note{ font-size:11px; color:var(--muted); padding:8px 14px; }
 
@@ -1483,10 +1485,12 @@
   // donc par zones emboîtées, de la plus petite à la plus grande ; chaque zone
   // est assez petite pour que tout ce qu'elle contient soit renvoyé.
   // dlat/dlng : demi-côté de la zone, en degrés ; null = partout.
+  // La recherche « partout » passe en deuxième : une ville lointaine (« Namur »)
+  // arrive ainsi en tête de liste dès la deuxième seconde.
   var SEARCH_STAGES = [
     { dlat:0.045, dlng:0.07, limit:40 },   // ≈ 5 km autour de vous
-    { dlat:0.27,  dlng:0.42, limit:40 },   // ≈ 30 km
-    { dlat:null,  dlng:null, limit:10 }    // partout (villes, lieux lointains)
+    { dlat:null,  dlng:null, limit:10 },   // partout (villes, lieux lointains)
+    { dlat:0.27,  dlng:0.42, limit:40 }    // ≈ 30 km
   ];
   function geocode(q, ref, stage){
     var url = 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1'
@@ -1521,40 +1525,66 @@
   }
 
   // Recherche en trois temps (voir SEARCH_STAGES), une requête par seconde
-  // comme l'exige Nominatim, la liste se complétant à chaque étape et restant
-  // toujours classée du plus proche au plus éloigné :
+  // comme l'exige Nominatim, la liste se complétant à chaque étape :
   // 1. ≈ 5 km : le magasin le plus proche, affiché tout de suite ;
-  // 2. ≈ 30 km : les autres magasins des environs ;
-  // 3. partout : pour « Liège » ou « Annecy », la ville elle-même, même si une
-  //    rue du même nom existe près de chez vous.
+  // 2. partout : pour « Liège » ou « Annecy », la ville elle-même ;
+  // 3. ≈ 30 km : les autres magasins des environs.
+  // Une ville, commune ou village dont le nom correspond à la recherche passe
+  // en tête (son centre), même si une rue du même nom est plus proche ; le
+  // reste est classé du plus proche au plus éloigné.
   var SUG_MAX = 10;
+  var LOCALITY_RANK = { city:1, town:2, municipality:3, village:4, hamlet:5 };
+  function normName(t){
+    return String(t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+      .replace(/[-'’.,()]/g,' ').replace(/\s+/g,' ').trim();
+  }
+  // Rang de localité (1 = ville … 5 = hameau) si le résultat est une localité
+  // portant le nom cherché, sinon 0. « namur », « Namur Belgique » et « namu »
+  // (en cours de frappe) trouvent tous Namur.
+  function localityRank(it, q){
+    var kind = it.addresstype || (it['class']==='place' ? it.type : '');
+    var rank = LOCALITY_RANK[kind] || 0;
+    if(!rank && it['class']==='boundary' && it.type==='administrative' && +it.place_rank>=12 && +it.place_rank<=16) rank = 3;
+    if(!rank) return 0;
+    var name = normName(it.name || String(it.display_name||'').split(',')[0]), nq = normName(q);
+    if(!name || !nq) return 0;
+    var hit = name===nq || name.indexOf(nq)===0 || nq.indexOf(name+' ')===0;
+    return hit ? rank : 0;
+  }
   function wireField(which){
     var inp = $('#'+which+'Inp'), sug = $('#'+which+'Sug'), timer=null, inflight=0, wideT=null;
-    var render = function(found, ref, final){
+    var render = function(found, ref, final, q){
       var list = Object.keys(found).map(function(k){ return found[k]; });
       if(!list.length){
         if(final){ sug.innerHTML='<div class="row">Aucun résultat</div>'; sug.classList.add('show'); }
         return;
       }
-      list.forEach(function(it){ it._d = distM(ref, [+it.lat, +it.lon]); });
-      list.sort(function(a,b){ return a._d-b._d; });
+      list.forEach(function(it){ it._d = distM(ref, [+it.lat, +it.lon]); it._loc = localityRank(it, q); });
+      // Localités d'abord (ville avant village, puis la plus proche), le reste par distance.
+      list.sort(function(a,b){
+        if(!!a._loc !== !!b._loc) return a._loc ? -1 : 1;
+        if(a._loc && a._loc!==b._loc) return a._loc - b._loc;
+        return a._d - b._d;
+      });
       sug.innerHTML='';
       list.slice(0, SUG_MAX).forEach(function(it){
         var parts = String(it.display_name||'').split(',');
-        var row = document.createElement('div'); row.className='row';
-        row.innerHTML='<b>'+esc(parts[0])+'</b><span class="dist">'+fmtKm(it._d)+'</span>'+
+        var row = document.createElement('div'); row.className='row'+(it._loc?' city':'');
+        row.innerHTML='<b>'+esc(parts[0])+'</b>'+(it._loc?' <span class="ctag">centre-ville</span>':'')+
+          '<span class="dist">'+fmtKm(it._d)+'</span>'+
           '<small>'+esc(parts.slice(1,4).join(',').trim())+'</small>';
         row.addEventListener('click', function(){
           if(wideT){ clearTimeout(wideT); wideT=null; }
           inflight++;                       // la recherche élargie, si elle arrive, est ignorée
-          setPoint(which, +it.lat, +it.lon, parts[0]);
+          setPoint(which, +it.lat, +it.lon, parts[0] + (it._loc ? ' (centre)' : ''));
           inp.value = parts[0];
           sug.classList.remove('show');
         });
         sug.appendChild(row);
       });
       var note=document.createElement('div'); note.className='row note';
-      note.textContent = 'Du plus proche au plus éloigné de ' + (ref.me ? 'votre position' : 'la zone affichée') +
+      note.textContent = (list.some(function(x){ return x._loc; }) ? 'Ville en tête, puis du plus proche' : 'Du plus proche') +
+                         ' au plus éloigné de ' + (ref.me ? 'votre position' : 'la zone affichée') +
                          (final ? '' : ' — recherche élargie en cours…');
       sug.appendChild(note);
       sug.classList.add('show');
@@ -1577,12 +1607,12 @@
           if(seq!==inflight) return;            // réponse périmée
           hideToast();
           add(list);
-          render(found, ref, last);
+          render(found, ref, last, q);
         }).catch(function(){
           if(seq!==inflight) return;
           if(last){
             hideToast();
-            if(Object.keys(found).length) render(found, ref, true);
+            if(Object.keys(found).length) render(found, ref, true, q);
             else toast('Recherche indisponible. Vérifiez la connexion et réessayez.');
           }
         }).then(function(){

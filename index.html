@@ -1529,9 +1529,9 @@
   // 1. ≈ 5 km : le magasin le plus proche, affiché tout de suite ;
   // 2. partout : pour « Liège » ou « Annecy », la ville elle-même ;
   // 3. ≈ 30 km : les autres magasins des environs.
-  // Une ville, commune ou village dont le nom correspond à la recherche passe
-  // en tête (son centre), même si une rue du même nom est plus proche ; le
-  // reste est classé du plus proche au plus éloigné.
+  // La ville, commune ou village dont le nom correspond à la recherche passe
+  // en tête (son centre, un seul), même si une rue du même nom est plus proche ;
+  // le reste est classé du plus proche au plus éloigné.
   var SUG_MAX = 10;
   var LOCALITY_RANK = { city:1, town:2, municipality:3, village:4, hamlet:5 };
   function normName(t){
@@ -1559,11 +1559,24 @@
         if(final){ sug.innerHTML='<div class="row">Aucun résultat</div>'; sug.classList.add('show'); }
         return;
       }
-      list.forEach(function(it){ it._d = distM(ref, [+it.lat, +it.lon]); it._loc = localityRank(it, q); });
-      // Localités d'abord (ville avant village, puis la plus proche), le reste par distance.
+      list.forEach(function(it){ it._d = distM(ref, [+it.lat, +it.lon]); it._rank = localityRank(it, q); it._loc = 0; });
+      // Un seul centre-ville : la localité qui porte ce nom (ville avant village,
+      // puis la plus proche). Ses doublons (la commune et son point « ville »,
+      // à quelques km l'un de l'autre) disparaissent ; une homonyme lointaine
+      // reste dans la liste comme un résultat ordinaire. Le reste par distance.
+      var top = null;
+      list.forEach(function(it){
+        if(it._rank && (!top || it._rank < top._rank || (it._rank===top._rank && it._d < top._d))) top = it;
+      });
+      if(top){
+        top._loc = top._rank;
+        list = list.filter(function(it){
+          return it===top || !(it._rank && distM([+top.lat, +top.lon], [+it.lat, +it.lon]) < 20000);
+        });
+      }
       list.sort(function(a,b){
-        if(!!a._loc !== !!b._loc) return a._loc ? -1 : 1;
-        if(a._loc && a._loc!==b._loc) return a._loc - b._loc;
+        if(a===top) return -1;
+        if(b===top) return 1;
         return a._d - b._d;
       });
       sug.innerHTML='';

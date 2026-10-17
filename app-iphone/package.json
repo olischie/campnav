@@ -4,11 +4,11 @@
   "version": "1.0.0",
   "description": "Coque iPhone (Capacitor) autour de campnav : GPS en arrière-plan, voix native, écran allumé.",
   "dependencies": {
-    "@capacitor/core": "^7.0.0",
-    "@capacitor/ios": "^7.0.0",
     "@capacitor-community/background-geolocation": "^1.2.25",
     "@capacitor-community/keep-awake": "^6.0.0",
-    "@capacitor-community/text-to-speech": "^6.0.0"
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/ios": "^7.0.0",
+    "campnav-audio": "file:./campnav-audio"
   },
   "devDependencies": {
     "@capacitor/cli": "^7.0.0",

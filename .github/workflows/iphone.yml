@@ -63,23 +63,33 @@ jobs:
           npx cap add ios
           npx cap sync ios
 
-      - name: Réglages iOS (GPS et voix en arrière-plan, portrait)
+      - name: Réglages iOS (GPS et voix en arrière-plan, sortie du son, portrait)
         run: |
-          P=ios/App/App/Info.plist
-          PB=/usr/libexec/PlistBuddy
-          for k in NSLocationWhenInUseUsageDescription NSLocationAlwaysAndWhenInUseUsageDescription UIBackgroundModes UISupportedInterfaceOrientations CFBundleDisplayName; do
-            $PB -c "Delete :$k" "$P" 2>/dev/null || true
-          done
-          $PB -c "Add :CFBundleDisplayName string campnav" "$P"
-          $PB -c "Add :NSLocationWhenInUseUsageDescription string campnav utilise votre position pour vous guider." "$P"
-          $PB -c "Add :NSLocationAlwaysAndWhenInUseUsageDescription string campnav utilise votre position pour continuer le guidage quand l'écran est verrouillé." "$P"
-          $PB -c "Add :UIBackgroundModes array" "$P"
-          $PB -c "Add :UIBackgroundModes:0 string location" "$P"
-          $PB -c "Add :UIBackgroundModes:1 string audio" "$P"
-          $PB -c "Add :UISupportedInterfaceOrientations array" "$P"
-          $PB -c "Add :UISupportedInterfaceOrientations:0 string UIInterfaceOrientationPortrait" "$P"
-          plutil -lint "$P"
-          cat "$P"
+          # plistlib plutôt que PlistBuddy : PlistBuddy coupe les textes à la
+          # première apostrophe (« l'écran »), sans signaler d'erreur.
+          python3 - <<'EOF'
+          import plistlib
+          p = 'ios/App/App/Info.plist'
+          d = plistlib.load(open(p, 'rb'))
+          d.update({
+            'CFBundleDisplayName': 'campnav',
+            'NSLocationWhenInUseUsageDescription':
+              "campnav utilise votre position pour vous guider.",
+            'NSLocationAlwaysAndWhenInUseUsageDescription':
+              "campnav utilise votre position pour continuer le guidage quand l'écran est verrouillé.",
+            'NSMicrophoneUsageDescription':
+              "iOS l'exige pour diriger la voix vers le haut-parleur du téléphone quand l'autoradio est connecté. campnav n'enregistre jamais rien.",
+            'UIBackgroundModes': ['location', 'audio'],
+            'UISupportedInterfaceOrientations': ['UIInterfaceOrientationPortrait'],
+          })
+          plistlib.dump(d, open(p, 'wb'))
+          d2 = plistlib.load(open(p, 'rb'))
+          for k in ('NSLocationWhenInUseUsageDescription', 'NSLocationAlwaysAndWhenInUseUsageDescription',
+                    'NSMicrophoneUsageDescription', 'UIBackgroundModes'):
+            assert d2.get(k), k
+            print(k, '=', d2[k])
+          EOF
+          plutil -lint ios/App/App/Info.plist
 
       - name: Icône
         run: |
@@ -104,6 +114,10 @@ jobs:
           APP=build/Build/Products/Release-iphoneos/App.app
           test -d "$APP"
           test -f "$APP/public/native.js"
+          test -d "$APP/Frameworks/CampnavAudio.framework"
+          grep -q CampnavAudioPlugin "$APP/capacitor.config.json"
+          python3 -c "import plistlib; d=plistlib.load(open('$APP/Info.plist','rb')); [d[k] for k in ('NSLocationAlwaysAndWhenInUseUsageDescription','NSMicrophoneUsageDescription','UIBackgroundModes')]; print('Info.plist OK')"
+          cat "$APP/capacitor.config.json"
           rm -rf Payload && mkdir Payload && cp -R "$APP" Payload/
           rm -f campnav.ipa && zip -qry campnav.ipa Payload
           ls -la campnav.ipa

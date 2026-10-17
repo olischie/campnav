@@ -63,7 +63,7 @@ jobs:
           npx cap add ios
           npx cap sync ios
 
-      - name: Réglages iOS (GPS et voix en arrière-plan, sortie du son, portrait)
+      - name: Réglages iOS (GPS et voix en arrière-plan, portrait)
         run: |
           # plistlib plutôt que PlistBuddy : PlistBuddy coupe les textes à la
           # première apostrophe (« l'écran »), sans signaler d'erreur.
@@ -77,15 +77,12 @@ jobs:
               "campnav utilise votre position pour vous guider.",
             'NSLocationAlwaysAndWhenInUseUsageDescription':
               "campnav utilise votre position pour continuer le guidage quand l'écran est verrouillé.",
-            'NSMicrophoneUsageDescription':
-              "iOS l'exige pour diriger la voix vers le haut-parleur du téléphone quand l'autoradio est connecté. campnav n'enregistre jamais rien.",
             'UIBackgroundModes': ['location', 'audio'],
             'UISupportedInterfaceOrientations': ['UIInterfaceOrientationPortrait'],
           })
           plistlib.dump(d, open(p, 'wb'))
           d2 = plistlib.load(open(p, 'rb'))
-          for k in ('NSLocationWhenInUseUsageDescription', 'NSLocationAlwaysAndWhenInUseUsageDescription',
-                    'NSMicrophoneUsageDescription', 'UIBackgroundModes'):
+          for k in ('NSLocationWhenInUseUsageDescription', 'NSLocationAlwaysAndWhenInUseUsageDescription', 'UIBackgroundModes'):
             assert d2.get(k), k
             print(k, '=', d2[k])
           EOF
@@ -114,10 +111,7 @@ jobs:
           APP=build/Build/Products/Release-iphoneos/App.app
           test -d "$APP"
           test -f "$APP/public/native.js"
-          test -d "$APP/Frameworks/CampnavAudio.framework"
-          grep -q CampnavAudioPlugin "$APP/capacitor.config.json"
-          python3 -c "import plistlib; d=plistlib.load(open('$APP/Info.plist','rb')); [d[k] for k in ('NSLocationAlwaysAndWhenInUseUsageDescription','NSMicrophoneUsageDescription','UIBackgroundModes')]; print('Info.plist OK')"
-          cat "$APP/capacitor.config.json"
+          python3 -c "import plistlib; d=plistlib.load(open('$APP/Info.plist','rb')); [d[k] for k in ('NSLocationAlwaysAndWhenInUseUsageDescription','UIBackgroundModes')]; print('Info.plist OK')"
           rm -rf Payload && mkdir Payload && cp -R "$APP" Payload/
           rm -f campnav.ipa && zip -qry campnav.ipa Payload
           ls -la campnav.ipa

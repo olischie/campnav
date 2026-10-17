@@ -186,10 +186,6 @@
   .btn.ghost{background:var(--panel-2); color:var(--ink); border:1px solid var(--line);}
 
   .chips{display:flex; flex-wrap:wrap; gap:8px; margin-top:4px;}
-  /* Sortie du son (appli iPhone) : deux choix côte à côte */
-  .outsel{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:4px 0 6px;}
-  .outsel .chip{justify-content:center; text-align:center; font-size:14px; padding:11px 8px; border-radius:12px;}
-  .outsel .chip:disabled{opacity:.45;}
   .chip{
     padding:9px 13px; border-radius:20px; border:1px solid var(--line);
     background:var(--panel-2); color:var(--ink); font-size:13px; display:flex;
@@ -685,11 +681,6 @@
       </div>
 
       <label class="lb">Guidage vocal</label>
-      <div class="outsel" id="audioOut" role="radiogroup" aria-label="Sortie du son">
-        <button class="chip" data-out="auto" role="radio" aria-checked="true">🚗 Autoradio / Bluetooth</button>
-        <button class="chip" data-out="speaker" role="radio" aria-checked="false">📱 Haut-parleur du téléphone</button>
-      </div>
-      <p class="hint" id="audioRoute"></p>
       <select class="inp" id="voiceSel" aria-label="Voix du guidage"></select>
       <p class="hint" id="voiceNone" style="display:none">Aucune voix française n'est installée ou visible dans ce navigateur : la voix par défaut du téléphone est utilisée.</p>
       <div class="slider-row" style="margin-top:10px">
@@ -1477,8 +1468,6 @@
     }
     var panes=document.querySelector('.panes');
     if(panes) panes.scrollTop=0;   // on repart du haut à chaque changement de vue
-    // Options : la sortie du son a pu changer (autoradio connecté ou non).
-    if(sub==='opt' && NATIVE && NATIVE.Audio) NATIVE.Audio.getRoute().then(showAudioRoute, function(){});
   }
   document.querySelectorAll('#setMenu .setbtn').forEach(function(b){
     b.addEventListener('click', function(){ showSet(b.dataset.sub); });
@@ -3414,9 +3403,10 @@
     if(sayCur || !sayQueue.length) return;
     var item = sayQueue.shift(), token = {};
     sayCur = token;
-    var opts = { text:item.txt, lang:'fr-FR', rate:voiceRate };
+    var opts = { text:item.txt, lang:'fr-FR', rate:voiceRate, pitch:1, volume:1,
+                 category:'playback', queueStrategy:1 };
     var v = item.noVoice ? null : pickedVoice();
-    if(v) opts.voice = v.voiceURI;
+    if(v && v._idx!=null) opts.voice = v._idx;
     var finished = false;
     function done(){
       if(finished) return;
@@ -3425,14 +3415,14 @@
       if(sayCur === token){ sayCur = null; sayNext(); }
     }
     sayTimer = setTimeout(done, Math.max(4000, item.txt.length * 90 / Math.max(0.5, voiceRate)) + 2500);
-    NATIVE.Audio.speak(opts).then(done, function(){
+    NATIVE.TTS.speak(opts).then(done, function(){
       // Voix choisie indisponible : nouvel essai avec la voix par défaut.
       if(v && !item.noVoice && !finished){ sayQueue.unshift({ txt:item.txt, noVoice:true }); }
       done();
     });
   }
   function sayNext(){
-    if(NATIVE && NATIVE.Audio) return sayNextNative();
+    if(NATIVE && NATIVE.TTS) return sayNextNative();
     if(sayCur || !sayQueue.length || !('speechSynthesis' in window)) return;
     var item = sayQueue.shift(), ss = window.speechSynthesis;
     var u = new SpeechSynthesisUtterance(item.txt);
@@ -3467,11 +3457,11 @@
   // `force` : parle même si la voix est coupée (bouton « Écouter la voix »).
   function speak(txt, urgent, force){
     if(!voiceOn && !force) return;
-    if(NATIVE && NATIVE.Audio){
+    if(NATIVE && NATIVE.TTS){
       if(urgent){
         sayQueue = [{ txt:txt }]; sayCur = null;
         if(sayTimer){ clearTimeout(sayTimer); sayTimer = null; }
-        NATIVE.Audio.stop().catch(function(){}).then(sayNext);
+        NATIVE.TTS.stop().catch(function(){}).then(sayNext);
       } else {
         sayQueue.push({ txt:txt });
         if(sayQueue.length > 3) sayQueue = sayQueue.slice(-3);
@@ -3504,7 +3494,7 @@
   function sayStop(){
     sayQueue = []; sayCur = null; sayLive = [];
     if(sayTimer){ clearTimeout(sayTimer); sayTimer = null; }
-    if(NATIVE && NATIVE.Audio){ NATIVE.Audio.stop().catch(function(){}); return; }
+    if(NATIVE && NATIVE.TTS){ NATIVE.TTS.stop().catch(function(){}); return; }
     try{ window.speechSynthesis.cancel(); }catch(e){}
   }
 
@@ -3517,10 +3507,10 @@
     var vr = parseInt(localStorage.getItem('cc_rate')||'', 10);
     if(vr>=70 && vr<=140) voiceRate = vr/100;
   }catch(e){}
-  // Voix natives de l'iPhone (appli), repérées par leur identifiant.
+  // Voix natives de l'iPhone (appli) : on garde leur rang, que le moteur attend.
   var nativeVoices = [];
   function frVoices(){
-    if(NATIVE && NATIVE.Audio) return nativeVoices.filter(function(v){ return /^fr/i.test(v.lang||''); });
+    if(NATIVE && NATIVE.TTS) return nativeVoices.filter(function(v){ return /^fr/i.test(v.lang||''); });
     if(!('speechSynthesis' in window)) return [];
     return (window.speechSynthesis.getVoices()||[]).filter(function(v){ return /^fr/i.test(v.lang||''); });
   }
@@ -3544,11 +3534,10 @@
     var sel=$('#voiceSel'), r=$('#rateRange'), out=$('#rateOut');
     if(!sel) return;
     fillVoiceList();
-    if(NATIVE && NATIVE.Audio){
-      NATIVE.Audio.getVoices().then(function(r){
-        nativeVoices = ((r && r.voices) || []).map(function(v){
-          var q = v.quality==='premium' ? ' (premium)' : v.quality==='enhanced' ? ' (améliorée)' : '';
-          return { voiceURI:v.id, name:v.name+q, lang:v.lang, localService:true };
+    if(NATIVE && NATIVE.TTS){
+      NATIVE.TTS.getSupportedVoices().then(function(r){
+        nativeVoices = ((r && r.voices) || []).map(function(v, i){
+          return { voiceURI:v.voiceURI || v.name, name:v.name, lang:v.lang, localService:v.localService, _idx:i };
         });
         fillVoiceList();
       }).catch(function(){});
@@ -3568,45 +3557,6 @@
       speak('Dans 800 mètres, au rond-point, prenez la deuxième sortie, direction Namur.', true, true);
     });
   })();
-
-  // ---------- Sortie du son : autoradio/Bluetooth ou haut-parleur (appli iPhone) ----------
-  // Une page web ne peut pas choisir la sortie du son : dans Safari, le son suit
-  // toujours la sortie d'iOS. Le choix n'agit donc que dans l'appli iPhone.
-  var audioOut = 'auto';
-  try{ audioOut = localStorage.getItem('cc_audio_out')==='speaker' ? 'speaker' : 'auto'; }catch(e){}
-  var PORT_FR = { BluetoothA2DPOutput:'Bluetooth', BluetoothHFP:'Bluetooth (mains libres)', BluetoothLE:'Bluetooth',
-    CarAudio:'CarPlay', Speaker:'haut-parleur du téléphone', Receiver:'écouteur du téléphone',
-    Headphones:'câble (prise casque)', LineOut:'câble', USBAudio:'câble USB', HDMIOutput:'HDMI', AirPlay:'AirPlay' };
-  function showAudioRoute(r){
-    var el=$('#audioRoute'); if(!el) return;
-    if(!NATIVE || !NATIVE.Audio){
-      el.textContent = 'Ce choix ne fonctionne que dans l\'appli iPhone. Dans Safari, la voix suit la sortie choisie par le téléphone (l\'autoradio s\'il est connecté en Bluetooth).';
-      return;
-    }
-    if(audioOut==='speaker'){ el.textContent = 'La voix sort du haut-parleur du téléphone, même si l\'autoradio est connecté.'; return; }
-    var name = r && r.portType ? (PORT_FR[r.portType] || r.portType) : '';
-    var dev = r && r.portName && r.bluetooth ? ' « '+r.portName+' »' : '';
-    el.textContent = name ? 'La voix sort actuellement par : '+name+dev+'.'
-                          : 'La voix passe par l\'autoradio quand il est connecté, sinon par le haut-parleur.';
-  }
-  function applyAudioOut(){
-    document.querySelectorAll('#audioOut .chip').forEach(function(b){
-      var on = b.getAttribute('data-out')===audioOut;
-      b.classList.toggle('on', on); b.setAttribute('aria-checked', on?'true':'false');
-      b.disabled = !(NATIVE && NATIVE.Audio);
-    });
-    if(NATIVE && NATIVE.Audio) NATIVE.Audio.setOutput({ output:audioOut }).then(showAudioRoute, function(){ showAudioRoute(null); });
-    else showAudioRoute(null);
-  }
-  document.querySelectorAll('#audioOut .chip').forEach(function(b){
-    b.addEventListener('click', function(){
-      audioOut = b.getAttribute('data-out')==='speaker' ? 'speaker' : 'auto';
-      try{ localStorage.setItem('cc_audio_out', audioOut); }catch(e){}
-      applyAudioOut();
-      speak(audioOut==='speaker' ? 'La voix sortira du haut-parleur du téléphone.' : 'La voix sortira par l\'autoradio.', true, true);
-    });
-  });
-  applyAudioOut();
 
   // ---------- Signal sonore d'alerte (synthétisé, aucun fichier requis) ----------
   var audioCtx=null;

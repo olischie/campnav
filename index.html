@@ -1121,7 +1121,6 @@
     if(!map.getSource('cc-world')) map.addSource('cc-world', { type:'geojson', data:WORLD });
     if(!map.getLayer('cc-dim')) map.addLayer({ id:'cc-dim', type:'fill', source:'cc-world',
       paint:{ 'fill-color':'#000000', 'fill-opacity':0 } });
-    if(ttActive) addTrafficLayer();
     if(!map.getSource('cc-area')) map.addSource('cc-area', { type:'geojson', data:areaData });
     if(!map.getLayer('cc-area')) map.addLayer({ id:'cc-area', type:'line', source:'cc-area',
       paint:{ 'line-color':'#2563eb', 'line-width':2, 'line-dasharray':[3,3] } });
@@ -1140,6 +1139,7 @@
     if(!map.getLayer('cc-route-near-casing')) map.addLayer({ id:'cc-route-near-casing', type:'line', source:'cc-route-near', layout:ROUND, paint:CASING });
     if(!map.getLayer('cc-route-line')) map.addLayer({ id:'cc-route-line', type:'line', source:'cc-route', layout:ROUND, paint:LINE });
     if(!map.getLayer('cc-route-near-line')) map.addLayer({ id:'cc-route-near-line', type:'line', source:'cc-route-near', layout:ROUND, paint:LINE });
+    if(ttActive) addTrafficLayer();          // par-dessus le tracé
     applyTileFilter();
   }
   map.on('style.load', addCustomLayers);
@@ -3284,8 +3284,9 @@
     else toast('Clé Protomaps oubliée.',2500);
   });
 
-  // Couche du trafic, glissée sous le cadre de recherche et le tracé : l'itinéraire
-  // reste lisible par-dessus. Seuls les ralentissements sont dessinés (orange,
+  // Couche du trafic, posée par-dessus le tracé : un bouchon sur l'itinéraire se
+  // voit en couleur sur le trait bleu, dont le liseré sombre reste visible
+  // autour. Seuls les ralentissements sont dessinés (orange,
   // rouge, rouge foncé) ainsi que les routes fermées ; la circulation fluide
   // n'apparaît pas. Un tronçon qui ne concerne qu'un sens est décalé de son côté.
   function addTrafficLayer(){
@@ -3310,7 +3311,7 @@
         'line-offset':['interpolate', ['linear'], ['zoom'], 6, offset(0.5), 10, offset(1.5), 13, offset(2.5), 16, offset(4), 19, offset(6)],
         'line-opacity':0.95
       }
-    }, map.getLayer('cc-area') ? 'cc-area' : undefined);
+    });   // sans « avant » : tout en haut, au-dessus du tracé
   }
   function removeTrafficLayer(){
     if(!styleReady) return;

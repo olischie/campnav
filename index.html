@@ -1388,8 +1388,8 @@
   // routeXY.cum[i] : distance (m) du départ au sommet i du tracé.
   // stepAlong[k]   : distance (m) du départ à la manœuvre k.
   var stepAlong = [];
-  var STEP_PASSED = 15;
-  var lastStepDist = null; // dernière distance calculée jusqu'à la prochaine manœuvre   // marge (m) au-delà de laquelle une manœuvre est jugée dépassée
+  var STEP_PASSED = 8;     // marge (m) au-delà de laquelle une manœuvre est jugée franchie
+  var lastStepDist = null; // dernière distance calculée jusqu'à la prochaine manœuvre
 
   function buildCum(poly){
     var p=poly.p, cum=new Array(p.length);
@@ -3829,7 +3829,7 @@
       return;
     }
     if(tg.along!=null && cur.along!=null){
-      var a0=cur.along, a1=tg.along, vv=(v!=null && v>2) ? v : 0;
+      var a0=cur.along, a1=tg.along + (tg.lead||0), vv=(v!=null && v>2) ? v : 0;
       // Petit recul (bruit du GPS, arrêt) : on ne fait pas reculer le repère.
       // Grand écart (demi-tour, longue perte du signal) : on s'y place directement.
       if(a1 < a0){ if(a0-a1 < 40){ a1=a0; vv=0; } else a0=a1; }
@@ -3999,7 +3999,7 @@
     navWatch=navigator.geolocation.watchPosition(onNavPos, function(){
       var t=Date.now();
       if(t-lastGpsWarn>20000){ lastGpsWarn=t; toast('Signal GPS perdu…',1500); }
-    }, { enableHighAccuracy:true, maximumAge:1000, timeout:12000 });
+    }, { enableHighAccuracy:true, maximumAge:0, timeout:12000 });   // jamais de position gardée en cache
   }
 
   function stopNav(){
@@ -4032,6 +4032,9 @@
 
     var sp = pos.coords.speed;
     var kmh = (sp!=null && !isNaN(sp) && sp>=0) ? Math.round(sp*3.6) : null;
+    // Âge de la position : le téléphone la livre quelques centaines de ms après
+    // l'avoir mesurée ; entre-temps, le véhicule a continué de rouler.
+    var fixAge = (pos.timestamp && isFinite(pos.timestamp)) ? Math.min(1500, Math.max(0, Date.now()-pos.timestamp)) : 0;
     $('#navSpeed').textContent = (kmh!=null) ? kmh : '—';
 
     var hdg = headingFrom(pos, here);
@@ -4065,7 +4068,14 @@
     SNAP_MAX = snapFor(acc, headingOK);
     var snapped = !!(near && near.d <= SNAP_MAX);
     if(near && near.d <= Math.max(60, SNAP_MAX)) matchAlong = alongOf(near);
-    setVehicleTarget(snapped ? { lat:near.lat, lng:near.lng, along:matchAlong } : here, dt, vms);
+    // Le repère vise l'endroit où le véhicule sera à la fin de l'animation
+    // (âge de la position + intervalle jusqu'à la suivante), et non l'endroit
+    // mesuré : sinon il restait toujours une seconde derrière la réalité, soit
+    // 15 à 25 m, et l'annonce « Maintenant, tournez » arrivait alors que le
+    // repère n'était pas encore au carrefour. Avance plafonnée à 50 m.
+    var vLead = (vms!=null && vms>2) ? vms : 0;
+    var lead = snapped ? Math.min(50, vLead*(fixAge + (dt||1000))/1000) : 0;
+    setVehicleTarget(snapped ? { lat:near.lat, lng:near.lng, along:matchAlong, lead:lead } : here, dt, vms);
     navLast=here;
 
     checkRestrictionsAhead(here);
@@ -4097,7 +4107,9 @@
     // manœuvre. Une manœuvre dépassée est donc reconnue même si aucune position
     // GPS n'est tombée près du carrefour (GPS imprécis, vitesse élevée, tunnel).
     var onRoute = near && near.d<=Math.max(60, SNAP_MAX) && stepAlong.length===navSteps.length;
-    var vAlong = onRoute ? alongOf(near) : null;
+    // Progression « maintenant » : la position mesurée, avancée de ce que le
+    // véhicule a parcouru depuis la mesure. Voix, bandeau et repère s'accordent.
+    var vAlong = onRoute ? alongOf(near) + vLead*fixAge/1000 : null;
     if(onRoute){
       while(navPtr < navSteps.length-1 && vAlong > stepAlong[navPtr] + STEP_PASSED) navPtr++;
       step=navSteps[navPtr];
@@ -4111,7 +4123,10 @@
     }
     var d=distToStep(step, navPtr);
 
-    if(d<25 && navPtr<navSteps.length-1){
+    // Hors du tracé (distance à vol d'oiseau), on passe à la suite à 25 m du
+    // carrefour ; sur le tracé, seulement une fois le carrefour franchi : le
+    // bandeau ne montre plus la rue suivante avant d'avoir tourné.
+    if(!onRoute && d<25 && navPtr<navSteps.length-1){
       navPtr++; step=navSteps[navPtr];
       d=distToStep(step, navPtr);
     }

@@ -4152,13 +4152,16 @@
   }
 
   // ================= Annonces vocales =================
-  // Calées sur le temps plutôt que sur une distance fixe : environ 20 s avant le
-  // virage (28 s pour une sortie d'autoroute), puis 8 s avant, puis « maintenant »
-  // au virage. À 120 km/h, la première annonce tombe vers 700 m ; en ville, vers 300 m.
-  // Les distances dites restent rondes (« Dans 800 mètres », jamais « 763 »).
-  var ANN_FAR_S = 20, ANN_FAR_EXIT_S = 28, ANN_NEAR_S = 8, ANN_NOW_S = 2.5;
+  // Deux annonces par manœuvre, pas plus : une à l'avance (« Dans 150 mètres,
+  // tournez à gauche, rue X »), puis « Maintenant, tournez à gauche » au virage.
+  // Calées sur le temps plutôt que sur une distance fixe : environ 10 s avant en
+  // ville et sur route, 25 s avant sur voie rapide (plus de 80 km/h) et pour une
+  // sortie ou une bifurcation, puis 2,5 s avant. En ville, l'annonce tombe vers
+  // 150 m ; à 120 km/h, vers 800 m. Les distances dites restent rondes.
+  var ANN_ADV_S = 10, ANN_ADV_FAST_S = 25, ANN_NOW_S = 2.5;
+  var FAST_MS = 22;           // m/s (≈ 80 km/h) : au-delà, annonce plus tôt
   var CHAIN_GAP = 150;        // m : manœuvre suivante annoncée dans la même phrase (« …, puis… »)
-  var CONT_MIN = 1500;        // m : au-delà, « Continuez pendant… » après un virage
+  var CONT_MIN = 3000;        // m : au-delà, « Continuez pendant… » après un virage
   var navSpeedMs = null;      // vitesse lissée (m/s)
 
   function clampN(v, a, b){ return Math.max(a, Math.min(b, v)); }
@@ -4187,12 +4190,16 @@
 
   function annStages(type){
     var v = Math.max(5, navSpeedMs || 13.9);        // vitesse inconnue : ~50 km/h
-    var farS = (type==='off ramp' || type==='fork') ? ANN_FAR_EXIT_S : ANN_FAR_S;
-    var far = niceDist(clampN(v*farS, 150, 2000));
-    var nearD = niceDist(clampN(v*ANN_NEAR_S, 60, 600));
+    var early = v > FAST_MS || type==='off ramp' || type==='fork';
+    var adv = niceDist(clampN(v*(early ? ANN_ADV_FAST_S : ANN_ADV_S), 100, 1500));
     var now = clampN(v*ANN_NOW_S, 30, 70);
-    if(far < nearD*1.6) far = null;                  // trop proches : une seule annonce
-    return { far:far, near:nearD, now:now };
+    return { adv:adv, now:now };
+  }
+  // Une manœuvre est repérée par son type et son lieu, pas par son rang : après
+  // un recalcul, le même carrefour sur le nouveau tracé n'est pas annoncé deux fois.
+  function annKey(step){
+    var l = step && step.maneuver && step.maneuver.location;
+    return (step && step.maneuver ? step.maneuver.type : '')+'@'+(l ? (+l[0]).toFixed(4)+','+(+l[1]).toFixed(4) : '');
   }
 
   // Noms de rues lus en entier, sans abréviations.
@@ -4252,10 +4259,10 @@
   function chainedText(k, full){
     var step = navSteps[k], next = navSteps[k+1], t = actionText(step, full);
     if(next && step.maneuver.type!=='arrive' && (step.distance||0) < CHAIN_GAP){
-      var nt = next.maneuver.type==='arrive' ? 'vous serez arrivé' : actionText(next, false);
+      var nt = next.maneuver.type==='arrive' ? 'vous serez arrivé' : actionText(next, full);
       t += ', puis ' + nt;
-      var a = spokenFar[k+1] || (spokenFar[k+1] = {});
-      a.far = true;                         // déjà annoncée : pas de « Dans 300 mètres » en double
+      var a = spokenFar[annKey(next)] || (spokenFar[annKey(next)] = {});
+      a.adv = true;                         // déjà annoncée : pas de « Dans 100 mètres » en double
     }
     return t;
   }
@@ -4263,25 +4270,21 @@
 
   function announceStep(step, d){
     if(!step) return;
-    var k = navPtr, a = spokenFar[k] || (spokenFar[k] = {});
+    var k = navPtr, key = annKey(step), a = spokenFar[key] || (spokenFar[key] = {});
     var S = annStages(step.maneuver.type), arrive = step.maneuver.type==='arrive';
-    // Le virage est là : cet ordre prime sur tout palier resté en attente.
+    // Le virage est là : une phrase courte, sans la rue (déjà dite) ni la suite.
     if(d <= S.now){
       if(!a.now){
-        a.now = a.near = a.far = true;
-        if(!arrive) speak('Maintenant, '+chainedText(k, false)+'.');
+        a.now = a.adv = true;
+        if(!arrive) speak('Maintenant, '+actionText(step, false)+'.');
       }
       return;
     }
-    // On ne retient que le palier le plus proche déjà franchi : si le GPS saute
-    // de 900 m à 150 m, on n'annonce qu'une fois.
-    if(d <= S.near){
-      if(!a.near){ a.near = a.far = true; speak('Dans '+spokenDistance(niceDist(d))+', '+chainedText(k, true)+'.'); }
-      return;
-    }
-    if(S.far && d <= S.far && !a.far){
-      a.far = true;
-      speak('Dans '+spokenDistance(niceDist(d))+', '+actionText(step, true)+'.');
+    // L'annonce à l'avance, une seule fois, avec la rue ou la direction, et la
+    // manœuvre suivante si elle suit de près (« …, puis tournez à droite »).
+    if(d <= S.adv && !a.adv){
+      a.adv = true;
+      speak('Dans '+spokenDistance(niceDist(d))+', '+chainedText(k, true)+'.');
     }
   }
 
@@ -4379,7 +4382,8 @@
              t0:performance.now(), dur:0 };
     }
     prepareStepAlong();
-    spokenFar={}; spokenNear={}; spokenWarn={}; contPending=true;
+    // spokenFar est conservé : un carrefour déjà annoncé ne l'est pas une seconde fois.
+    spokenWarn={}; contPending=true;
     routeWarnings=[]; warnLayer.clearLayers();
     warnKey='';
     checkHeights(rt.coords);

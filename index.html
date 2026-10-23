@@ -1516,6 +1516,7 @@
 
   // Dernière position connue de l'utilisateur (géolocalisation, navigation).
   var lastPos = null;
+  var lastFix = null;   // la même, avec sa précision (m) et son heure : { lat, lng, acc, t }
   // Point de référence des recherches : votre position, sauf si vous regardez
   // la carte ailleurs (plus de 30 km de là, pour préparer une étape par exemple) :
   // c'est alors le centre de la carte qui compte.
@@ -1676,8 +1677,48 @@
     pts[which] = { lat:lat, lng:lng, label:label||'' };
     if(markers[which]) markers[which].remove();
     markers[which] = pinMarker(which, lat, lng);
-    if(pts.from && pts.to){ fitBoth(); calcRoute(); }
+    // Destination choisie sans départ encore connu : calcRoute le trouve (GPS).
+    if(pts.to && (pts.from || which==='to')) calcRoute(true);
     else setView(lat, lng, Math.max(map.getZoom(),13));
+  }
+
+  // ---------- Départ = position actuelle, à chaque calcul ----------
+  // Le départ automatique est remis sur la position du moment avant chaque calcul
+  // d'itinéraire : une position de moins de 3 s et à ± 30 m sert telle quelle,
+  // sinon on attend une mesure fraîche (5 s au plus). Un départ saisi à la main
+  // est respecté pour ce trajet ; il redevient « position actuelle » à la fin du
+  // guidage ou quand on revient sur l'appli après l'avoir quittée.
+  function placeFrom(f){
+    var moved = !pts.from || distM(pts.from, f) >= 15;
+    pts.from = { lat:f.lat, lng:f.lng, label:(pts.from && pts.from.auto && !moved) ? pts.from.label : 'Ma position',
+                 auto:true, acc:f.acc, heading:movingHeading() };
+    if(markers.from) markers.from.remove();
+    markers.from = pinMarker('from', f.lat, f.lng);
+    if(moved){
+      $('#fromInp').value = 'Ma position';
+      reverse(f.lat, f.lng).then(function(lbl){
+        if(pts.from && pts.from.auto && distM(pts.from, f) < 15){ pts.from.label = lbl; $('#fromInp').value = lbl; }
+      });
+    }
+  }
+  function freshStart(cb){
+    if(navActive || (pts.from && !pts.from.auto) || !navigator.geolocation){ cb(); return; }
+    if(lastFix && Date.now()-lastFix.t < 3000 && lastFix.acc <= 30){ placeFrom(lastFix); cb(); return; }
+    var best=null, done=false, wid=null, tm=null;
+    function finish(){
+      if(done) return; done=true;
+      if(wid!=null) navigator.geolocation.clearWatch(wid);
+      if(tm) clearTimeout(tm);
+      if(best) placeFrom(best);
+      cb();
+    }
+    tm = setTimeout(finish, 5000);
+    wid = navigator.geolocation.watchPosition(function(pos){
+      var f={ lat:pos.coords.latitude, lng:pos.coords.longitude, acc:(pos.coords.accuracy||999) };
+      lastPos={ lat:f.lat, lng:f.lng }; lastFix={ lat:f.lat, lng:f.lng, acc:f.acc, t:Date.now() };
+      if(!best || f.acc < best.acc) best=f;
+      if(f.acc <= 30) finish();
+    }, function(){ finish(); }, { enableHighAccuracy:true, maximumAge:0, timeout:5000 });
   }
   function clearPoint(which){
     pts[which]=null;
@@ -1969,8 +2010,19 @@
     });
   }
 
-  function calcRoute(){
-    if(!pts.from || !pts.to) return;
+  var calcSeq = 0;
+  function calcRoute(fit){
+    if(!pts.to) return;
+    var seq = ++calcSeq;
+    toast('<span class="spin"></span>Calcul de l\'itinéraire…',0);
+    freshStart(function(){
+      if(seq !== calcSeq) return;          // un autre calcul a été demandé entre-temps
+      if(!pts.from){ hideToast(); toast('Position inconnue : autorisez la localisation ou saisissez un départ.', 4000); return; }
+      if(fit) fitBoth();
+      doCalcRoute();
+    });
+  }
+  function doCalcRoute(){
     clearRouteLayers();
     warnLayer.clearLayers();
     toast('<span class="spin"></span>Calcul de l\'itinéraire…',0);
@@ -3362,7 +3414,7 @@
     wid=navigator.geolocation.watchPosition(function(pos){
       if(done) return;
       var f={ lat:pos.coords.latitude, lng:pos.coords.longitude, acc:(pos.coords.accuracy||999) };
-      lastPos={ lat:f.lat, lng:f.lng };
+      lastPos={ lat:f.lat, lng:f.lng }; lastFix={ lat:f.lat, lng:f.lng, acc:f.acc, t:Date.now() };
       var better = !best || f.acc < best.acc*0.7 || (f.acc <= best.acc && distM(best, f) > 10);
       if(!better) return;
       best=f;
@@ -3387,6 +3439,22 @@
 
   // Départ = position actuelle par défaut
   locatePrecise(function(f){ setAutoFrom(f, false); }, function(){ /* refus ou indisponible : champ vide */ });
+
+  // Retour sur l'appli après l'avoir quittée plus d'une minute : le départ redevient
+  // la position actuelle ; si un itinéraire est affiché et que vous avez bougé
+  // de plus de 150 m, il est recalculé depuis là où vous êtes.
+  var hiddenAt = 0;
+  document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState === 'hidden'){ hiddenAt = Date.now(); return; }
+    if(navActive || !hiddenAt || Date.now()-hiddenAt < 60000) return;
+    hiddenAt = 0;
+    if(pts.from) pts.from.auto = true;
+    var before = pts.from ? { lat:pts.from.lat, lng:pts.from.lng } : null;
+    freshStart(function(){
+      if(!pts.from || !pts.to) return;
+      if(!before || distM(before, pts.from) > 150) doCalcRoute();
+    });
+  });
 
   // ================= Navigation guidée =================
   // ---------- Écran toujours allumé pendant le guidage ----------
@@ -4004,6 +4072,7 @@
 
   function stopNav(){
     navActive=false; following=true;
+    if(pts.from) pts.from.auto = true;       // prochain calcul : depuis la position du moment
     document.body.classList.remove('nav');
     $('#navEta').classList.remove('jam');
     $('#recenter').classList.remove('show');
@@ -4028,6 +4097,7 @@
   function onNavPos(pos){
     if(!navActive) return;
     var lat=pos.coords.latitude, lng=pos.coords.longitude; lastPos={lat:lat, lng:lng};
+    lastFix={ lat:lat, lng:lng, acc:(pos.coords.accuracy||999), t:Date.now() };
     var here={lat:lat, lng:lng};
 
     var sp = pos.coords.speed;
@@ -4092,7 +4162,7 @@
         offCount++;
         if(offCount >= (acc > 25 ? 3 : 2)){
           offCount=0; toast('<span class="spin"></span>Hors itinéraire — recalcul…',0);
-          pts.from={lat:lat,lng:lng,label:'Position actuelle', heading:movingHeading()};
+          pts.from={lat:lat,lng:lng,label:'Position actuelle', heading:movingHeading(), auto:true};
           recalcFromHere();
           return;
         }

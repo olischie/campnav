@@ -1405,10 +1405,10 @@
   }
   // Distance parcourue depuis le départ pour un point du tracé {lat,lng,i}
   // renvoyé par nearestOn (i = fin du segment qui le porte).
-  function alongOf(pt){
-    var p=routeXY.p, i=Math.max(1, Math.min(pt.i, p.length-1));
-    var dx=pt.lng*routeXY.k - p[i-1][0], dy=pt.lat*110540 - p[i-1][1];
-    return routeXY.cum[i-1] + Math.sqrt(dx*dx+dy*dy);
+  function alongOf(pt, poly){
+    var P=poly||routeXY, p=P.p, i=Math.max(1, Math.min(pt.i, p.length-1));
+    var dx=pt.lng*P.k - p[i-1][0], dy=pt.lat*110540 - p[i-1][1];
+    return P.cum[i-1] + Math.sqrt(dx*dx+dy*dy);
   }
   // Premier sommet dont la distance cumulée atteint `m` (recherche dichotomique).
   function idxAtAlong(m){
@@ -2015,16 +2015,20 @@
   }
 
   // ---------- Tracé TomTom recalé sur les routes de la carte ----------
-  // TomTom calcule sur sa propre carte des routes ; le fond de carte vient
-  // d'OpenStreetMap. Les deux diffèrent de quelques mètres, davantage dans les
-  // ronds-points et les échangeurs : le trait bleu glissait à côté de la route.
-  // On garde le trajet choisi par TomTom (trafic, gabarit), mais on demande à
-  // OSRM, qui travaille sur OpenStreetMap, de suivre ce même chemin par des
-  // points de passage pris tous les ~800 m (100 au plus), chacun orienté dans le
-  // sens de marche pour ne pas tomber sur la chaussée d'en face. Le tracé obtenu
-  // n'est retenu que s'il colle au trajet TomTom (même longueur à 2 % près,
-  // jamais plus de 35 m d'écart) ; sinon le tracé TomTom reste affiché.
-  var ALIGN_MAX_GAP = 35;
+  // TomTom calcule sur sa propre carte des routes, dont la forme est parfois
+  // très grossière (carrefours reliés en ligne droite, courbes coupées de 30 à
+  // 50 m), alors que le fond de carte vient d'OpenStreetMap. On garde le trajet
+  // choisi par TomTom (trafic, gabarit) mais on redessine sa forme sur les
+  // routes OpenStreetMap : OSRM suit le même chemin par des points de passage
+  // pris sur les sommets du tracé TomTom (qui sont, eux, sur la route) — chaque
+  // carrefour où l'on tourne, plus un sommet tous les ~600 m — orientés dans le
+  // sens de marche pour ne pas tomber sur la chaussée d'en face (100 au plus).
+  // La vérification se fait tronçon par tronçon, entre deux points de passage :
+  // un tronçon est retenu s'il a une longueur comparable à la vraie longueur
+  // TomTom, passe à moins de 40 m des carrefours où TomTom fait tourner et ne
+  // s'écarte jamais de plus de 80 m du tracé TomTom ; sinon ce tronçon garde la
+  // forme TomTom, sans faire échouer le reste.
+  var ALIGN_SPACING = 600, ALIGN_TURN_GAP = 40, ALIGN_LOOSE_GAP = 80;
   function polyCum(c){
     var cum=[0];
     for(var i=1;i<c.length;i++) cum.push(cum[i-1]+distM(c[i-1], c[i]));
@@ -2037,50 +2041,93 @@
     var seg=cum[i]-cum[i-1], f=seg>0 ? (a-cum[i-1])/seg : 0;
     return [c[i-1][0]+(c[i][0]-c[i-1][0])*f, c[i-1][1]+(c[i][1]-c[i-1][1])*f];
   }
-  // Toutes les ~100 m de `a`, le point le plus proche de `b` est à moins de `max` m ?
-  function hugs(a, b, max){
-    var xy=buildXY(b), ca=polyCum(a), L=ca[ca.length-1], last=xy.p.length-1, i=1;
-    for(var s=0; s<=L; s+=100){
-      var p=pointAlong(a, ca, s);
-      var r=nearestOn(xy, p[0], p[1], Math.max(1, i-60), Math.min(last, i+600));
-      if(!r || r.d > max) r = nearestOn(xy, p[0], p[1]);         // recherche complète en cas de doute
+  // Tous les points de `pts` sont-ils à moins de `max` m de la polyligne `poly` ?
+  function allNear(pts, poly, max){
+    if(poly.length < 2) return false;
+    var xy=buildXY(poly);
+    for(var i=0;i<pts.length;i++){
+      var r=nearestOn(xy, pts[i][0], pts[i][1]);
       if(!r || r.d > max) return false;
-      i = r.i;
     }
     return true;
   }
   function alignToOsm(rt, ms){
     if(!rt || rt.engine!=='tomtom' || !rt.coords || rt.coords.length<2) return Promise.resolve(rt);
-    var c=rt.coords, cum=polyCum(c), L=cum[cum.length-1];
+    var c=rt.coords, cum=polyCum(c), L=cum[cum.length-1], last=c.length-1;
     if(L < 300) return Promise.resolve(rt);
-    var n=Math.min(98, Math.floor(L/800)), wp=[], k;
-    for(k=0;k<=n+1;k++){
-      var a=L*k/(n+1), p=pointAlong(c, cum, a);
-      var q0=pointAlong(c, cum, Math.max(0, a-15)), q1=pointAlong(c, cum, Math.min(L, a+15));
-      var b=Math.round((bearingTo({lat:q0[0],lng:q0[1]}, {lat:q1[0],lng:q1[1]})+360)%360);
-      wp.push({ lat:p[0], lng:p[1], b:b });
+    var xyT=buildXY(c); buildCum(xyT);
+    // Carrefours où l'on tourne : sommet TomTom le plus proche de chaque manœuvre.
+    var turnIdx={}, turns=[];
+    (rt.steps||[]).forEach(function(st){
+      var l=st.maneuver && st.maneuver.location, t=st.maneuver && st.maneuver.type;
+      if(!l || t==='depart' || t==='arrive') return;
+      turns.push([l[1], l[0]]);
+      var best=-1, bd=Infinity;
+      for(var i=1;i<last;i++){ var d=distM(c[i], [l[1], l[0]]); if(d<bd){ bd=d; best=i; } }
+      if(best>0 && bd<25) turnIdx[best]=1;
+    });
+    // Sommets retenus comme points de passage.
+    var idx=[0], lastA=0, i;
+    for(i=1;i<last;i++){
+      var gap=cum[i]-lastA;
+      if((turnIdx[i] && gap>=40) || gap>=ALIGN_SPACING){ idx.push(i); lastA=cum[i]; }
     }
+    if(L-lastA < 40 && idx.length>1) idx.pop();
+    idx.push(last);
+    // 100 points au plus : on garde les carrefours en priorité.
+    if(idx.length > 100){
+      var keep=[0], step=Math.ceil((idx.length-2)/98);
+      for(i=1;i<idx.length-1;i++) if(turnIdx[idx[i]] || i%step===0) keep.push(idx[i]);
+      while(keep.length > 99) keep.splice(1+Math.floor(Math.random()*(keep.length-2)), 1);
+      keep.push(last); idx=keep;
+    }
+    var wp=idx.map(function(k){
+      var a=cum[k], q0=pointAlong(c, cum, Math.max(0, a-20)), q1=pointAlong(c, cum, Math.min(L, a+20));
+      return { lat:c[k][0], lng:c[k][1], a:a,
+               b:Math.round((bearingTo({lat:q0[0],lng:q0[1]}, {lat:q1[0],lng:q1[1]})+360)%360) };
+    });
     var url='https://router.project-osrm.org/route/v1/driving/'+
       wp.map(function(w){ return w.lng.toFixed(6)+','+w.lat.toFixed(6); }).join(';')+
-      '?overview=full&geometries=geojson&steps=false&continue_straight=true'+
-      '&bearings='+wp.map(function(w){ return w.b+',35'; }).join(';')+
-      '&radiuses='+wp.map(function(){ return 30; }).join(';');
+      '?overview=false&steps=true&geometries=geojson&continue_straight=true'+
+      '&bearings='+wp.map(function(w){ return w.b+',40'; }).join(';')+
+      '&radiuses='+wp.map(function(w, k){ return (k===0 || k===wp.length-1) ? 100 : 40; }).join(';');
+    // Longueur réelle TomTom / longueur de son dessin (le dessin coupe les courbes).
+    var scale = (rt.distance>0 && L>0) ? Math.max(1, rt.distance/L) : 1;
     return fetchTimeout(url, null, ms).then(function(r){ return r.json(); }).then(function(d){
-      var o=d && d.routes && d.routes[0];
-      if(!o || !o.geometry || !o.geometry.coordinates || o.geometry.coordinates.length<2) return rt;
-      var oc=o.geometry.coordinates.map(function(q){ return [q[1], q[0]]; });
-      var oL=polyCum(oc); oL=oL[oL.length-1];
-      if(Math.abs(oL-L) > Math.max(150, L*0.02)) return rt;           // détour : chemin différent
-      if(!hugs(oc, c, ALIGN_MAX_GAP) || !hugs(c, oc, ALIGN_MAX_GAP)) return rt;
-      var out={}; for(var key in rt) out[key]=rt[key];
-      out.coords = oc;
-      out.aligned = true;
+      var legs=d && d.code==='Ok' && d.routes && d.routes[0] && d.routes[0].legs;
+      if(!legs || legs.length !== wp.length-1) return rt;
+      var out=[], okLen=0;
+      legs.forEach(function(leg, k){
+        var a0=wp[k].a, a1=wp[k+1].a;
+        var ttPart=[]; for(var j=idx[k]; j<=idx[k+1]; j++) ttPart.push(c[j]);
+        var osm=[];
+        (leg.steps||[]).forEach(function(st){
+          (st.geometry && st.geometry.coordinates || []).forEach(function(q){
+            var p=[q[1], q[0]], prev=osm[osm.length-1];
+            if(!prev || prev[0]!==p[0] || prev[1]!==p[1]) osm.push(p);
+          });
+        });
+        var ttLen=(a1-a0)*scale, ok = osm.length>=2 &&
+          leg.distance <= ttLen*1.2 + 80 && leg.distance >= (a1-a0)*0.8 - 80;
+        if(ok){
+          var tIn=turns.filter(function(t){ var r=nearestOn(xyT, t[0], t[1]); if(!r) return false;
+            var at=alongOf(r, xyT); return at>a0+5 && at<a1-5; });
+          ok = allNear(tIn, osm, ALIGN_TURN_GAP) && allNear(ttPart, osm, ALIGN_LOOSE_GAP);
+        }
+        var part = ok ? osm : ttPart;
+        if(ok) okLen += (a1-a0);
+        part.forEach(function(p, m){ if(m===0 && out.length) return; out.push(p); });
+      });
+      if(okLen <= 0 || out.length < 2) return rt;
+      var res={}; for(var key in rt) res[key]=rt[key];
+      res.coords = out;
+      res.aligned = Math.round(100*okLen/L);   // part du trajet recalée (%)
       // Les ralentissements TomTom repérés par indice dans l'ancien tracé
       // deviennent des points, reprojetés sur le nouveau tracé.
-      out.traffic = (rt.traffic||[]).map(function(t){
-        return { p0:c[Math.min(c.length-1, t.i0)], p1:c[Math.min(c.length-1, t.i1)], delay:t.delay };
+      res.traffic = (rt.traffic||[]).map(function(t){
+        return { p0:c[Math.min(last, t.i0)], p1:c[Math.min(last, t.i1)], delay:t.delay };
       });
-      return out;
+      return res;
     }).catch(function(){ return rt; });
   }
 
@@ -2154,7 +2201,8 @@
     if(!lastRoute) return 'moteur standard';
     if(lastRoute.engine==='tomtom')
       return (lastRoute.gabarit ? 'TomTom · trafic + gabarit' : 'TomTom · trafic en direct') +
-             (lastRoute.aligned ? ' · tracé recalé sur la carte' : ' · tracé TomTom (non recalé)');
+             (lastRoute.aligned ? ' · tracé recalé sur la carte'+(lastRoute.aligned<100 ? ' ('+lastRoute.aligned+' %)' : '')
+                                : ' · tracé TomTom (non recalé)');
     if(lastRoute.engine==='ors')    return 'Openrouteservice · gabarit, sans trafic';
     return 'OSRM · gabarit non pris en compte';
   }

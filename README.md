@@ -67,7 +67,7 @@ L'onglet **Options** (à droite des Favoris) réunit le **choix du fond de carte
 
 Sans aucune clé, le trajet est un **routage voiture standard** : seules les alertes de restriction fonctionnent.
 
-**Tracé posé sur la route.** TomTom calcule sur sa propre carte des routes, alors que le fond de carte vient d'OpenStreetMap : les deux diffèrent de quelques mètres, davantage dans les ronds-points et les échangeurs. L'appli garde le trajet choisi par TomTom (trafic, gabarit) mais redessine son tracé sur les routes OpenStreetMap : OSRM suit le même chemin par des points de passage pris tous les ~800 m, orientés dans le sens de marche. Ce tracé n'est retenu que s'il colle au trajet TomTom (même longueur à 2 % près, jamais plus de 35 m d'écart) ; sinon, ou si OSRM ne répond pas, le tracé TomTom reste affiché.
+**Tracé posé sur la route.** TomTom calcule sur sa propre carte des routes, dont la forme est parfois très grossière (carrefours reliés en ligne droite, courbes coupées de 30 à 50 m), alors que le fond de carte vient d'OpenStreetMap. L'appli garde le trajet choisi par TomTom (trafic, gabarit) mais redessine sa forme sur les routes OpenStreetMap : OSRM suit le même chemin par des points de passage pris sur les sommets du tracé TomTom (chaque carrefour où l'on tourne, plus un sommet tous les ~600 m), orientés dans le sens de marche. La vérification se fait tronçon par tronçon : un tronçon douteux (longueur trop différente, carrefour manqué) garde la forme TomTom sans faire échouer le reste. L'onglet Trajet indique « tracé recalé sur la carte », avec la part recalée si elle n'est pas complète, ou « tracé TomTom (non recalé) » si OSRM n'a pas répondu.
 
 ### TomTom (recommandé)
 

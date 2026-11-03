@@ -1,7 +1,7 @@
 // Service worker — Niveau Camping-Car
 // Tout tient dans quelques fichiers : on les garde en cache pour que le niveau
 // marche sans réseau (aire isolée, montagne). Réseau d'abord, cache en repli.
-const CACHE = 'niveau-v2';
+const CACHE = 'niveau-v3';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './icon-512-maskable.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', (e) => {

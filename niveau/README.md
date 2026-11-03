@@ -6,9 +6,9 @@ Adresse : `https://olischie.github.io/campnav/niveau/`
 
 ## Ce qu'elle affiche
 
-- une **fiole circulaire** : la bulle monte du côté le plus haut, comme un vrai niveau ; anneaux à la tolérance choisie, 1°, 2° et 3° (échelle resserrée au centre, là où se joue la précision) ;
-- l'inclinaison **en long** et **en travers**, en degrés et en pourcentage, avec le côté le plus bas ;
-- la **hauteur de cale à placer sous chaque roue**, au demi-centimètre, calculée avec l'empattement et la voie du véhicule (chaque roue est ramenée au niveau de la plus haute) ; au-delà de 12 cm, l'appli conseille de changer d'emplacement ;
+- une **fiole circulaire** : la bulle monte du côté le plus haut, comme un vrai niveau ; anneaux à la tolérance choisie, 1°, 2° et 3° ;
+- l'inclinaison **en long** et **en travers**, au demi-degré près, avec le côté le plus bas ;
+- la **hauteur de cale à placer sous chaque roue**, au centimètre près, calculée avec l'empattement et la voie du véhicule (chaque roue est ramenée au niveau de la plus haute) ; au-delà de 12 cm, l'appli conseille de changer d'emplacement ;
 - un **bip** facultatif quand le véhicule devient de niveau, pratique en montant sur les cales ;
 - un bouton **Figer** pour garder la mesure affichée.
 
@@ -17,6 +17,10 @@ Adresse : `https://olischie.github.io/campnav/niveau/`
 1. Posez le téléphone **à plat** sur le plancher, au milieu du véhicule, le haut du téléphone vers l'avant (sinon, indiquez son orientation dans Réglages).
 2. Les valeurs par défaut sont celles d'un **Citroën Jumper L4 de 6,36 m** (empattement 4,035 m, voie 1,80 m). Pour un autre véhicule, saisissez dans **Réglages** son empattement (distance entre essieux) et sa voie (écart entre les roues d'un essieu).
 3. Placez les cales indiquées, avancez, vérifiez.
+
+## Lecture calme
+
+La mesure est lissée sur environ une seconde, et un chiffre affiché ne change que si l'inclinaison s'écarte nettement de sa valeur : la lecture ne tremble pas. Le véhicule est considéré **de niveau sous 1°** (réglable : 0,5°, 1° ou 2°), ce qui suffit au confort et au réfrigérateur.
 
 ## Calibration
 
@@ -31,4 +35,4 @@ La page doit être servie en **HTTPS** (c'est le cas avec GitHub Pages) : sans c
 
 ## Limites
 
-Les capteurs de téléphone sont précis à quelques dixièmes de degré près une fois calibrés. Pour un réfrigérateur à absorption, la tolérance usuelle est d'environ 3° en travers et 6° en long : la notice de votre modèle fait foi.
+Une fois calibré, un téléphone mesure bien en dessous du demi-degré affiché. Pour un réfrigérateur à absorption, la tolérance usuelle est d'environ 3° en travers et 6° en long : la notice de votre modèle fait foi.

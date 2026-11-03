@@ -218,12 +218,12 @@
   <section class="reads" aria-live="polite">
     <div class="read" id="readLong">
       <div class="k">En long</div>
-      <div class="v" id="vLong">0,0°</div>
+      <div class="v" id="vLong">0°</div>
       <div class="s" id="sLong">—</div>
     </div>
     <div class="read" id="readLat">
       <div class="k">En travers</div>
-      <div class="v" id="vLat">0,0°</div>
+      <div class="v" id="vLat">0°</div>
       <div class="s" id="sLat">—</div>
     </div>
   </section>
@@ -288,9 +288,9 @@
 
     <h3>Tolérance « de niveau »</h3>
     <div class="seg three" id="thrSeg">
-      <button type="button" data-thr="0.3">0,3°</button>
       <button type="button" data-thr="0.5">0,5°</button>
       <button type="button" data-thr="1">1°</button>
+      <button type="button" data-thr="2">2°</button>
     </div>
 
     <div class="row">
@@ -335,7 +335,7 @@
   // Véhicule par défaut : Citroën Jumper L4 (longueur 6,36 m), empattement 4,035 m,
   // voie 1,81 m à l'avant et 1,79 m à l'arrière, soit 1,80 m en moyenne.
   var JUMPER = { wb:4.035, tr:1.8 };
-  var S = { wb:JUMPER.wb, tr:JUMPER.tr, rot:0, thr:0.5, beep:false, cal:{b:0, g:0, set:false} };
+  var S = { wb:JUMPER.wb, tr:JUMPER.tr, rot:0, thr:1, beep:false, cal:{b:0, g:0, set:false}, ver:2 };
   try{
     var saved = JSON.parse(localStorage.getItem('niveau.v1') || 'null');
     if(saved){
@@ -344,7 +344,8 @@
       if(saved.wb > 0 && !oldDefault) S.wb = +saved.wb;
       if(saved.tr > 0 && !oldDefault) S.tr = +saved.tr;
       if([0,90,180,270].indexOf(saved.rot) >= 0) S.rot = saved.rot;
-      if(saved.thr > 0) S.thr = +saved.thr;
+      // Avant la version 2, la tolérance était de 0,5° par défaut (0,3° possible) : on passe à 1°.
+      if(saved.ver === 2 && [0.5, 1, 2].indexOf(+saved.thr) >= 0) S.thr = +saved.thr;
       S.beep = !!saved.beep;
       if(saved.cal && isFinite(saved.cal.b) && isFinite(saved.cal.g)) S.cal = { b:+saved.cal.b, g:+saved.cal.g, set:!!saved.cal.set };
     }
@@ -461,6 +462,16 @@
     return { sp:sp, gx:gx, gy:gy, pitch:Math.atan(gy) * R2D, roll:Math.atan(gx) * R2D };
   }
 
+  // Arrondi « collant » : la valeur affichée ne bouge que si la mesure s'éloigne
+  // nettement de son cran actuel. Plus de chiffres qui sautent entre deux valeurs.
+  var shown = {};
+  function sticky(key, v, step, margin){
+    var cur = shown[key];
+    if(cur === undefined || Math.abs(v - cur) > step / 2 + margin) cur = shown[key] = Math.round(v / step) * step;
+    return cur;
+  }
+  function deg(n){ return (n === 0 ? '0' : fmt(n, n % 1 ? 1 : 0)) + '°'; }
+
   function level(deg){ var a = Math.abs(deg); return a <= S.thr ? 'ok' : a <= S.thr * 3 ? 'warn' : 'bad'; }
 
   var lastState = '';
@@ -477,12 +488,14 @@
     $('frontMark').firstChild.style.transform = 'translate(calc(-50% + ' + (f[0] * R * 0.90).toFixed(1) + 'px), calc(-50% + ' + (-f[1] * R * 0.90).toFixed(1) + 'px))';
 
     // Lectures
-    var lp = level(m.pitch), lr = level(m.roll);
+    // Au demi-degré près ; l'état (vert, orange, rouge) suit la valeur affichée.
+    var dp = sticky('p', m.pitch, 0.5, 0.15), dr = sticky('r', m.roll, 0.5, 0.15);
+    var lp = level(dp), lr = level(dr);
     $('readLong').className = 'read ' + lp; $('readLat').className = 'read ' + lr;
-    $('vLong').innerHTML = fmt(m.pitch, 1) + '°<small>' + fmt(Math.abs(m.gy) * 100, 1) + ' %</small>';
-    $('vLat').innerHTML  = fmt(m.roll, 1)  + '°<small>' + fmt(Math.abs(m.gx) * 100, 1) + ' %</small>';
-    $('sLong').textContent = lp === 'ok' ? 'De niveau' : (m.pitch < 0 ? 'Avant plus bas' : 'Arrière plus bas');
-    $('sLat').textContent  = lr === 'ok' ? 'De niveau' : (m.roll  < 0 ? 'Côté droit plus bas' : 'Côté gauche plus bas');
+    $('vLong').textContent = deg(dp);
+    $('vLat').textContent  = deg(dr);
+    $('sLong').textContent = lp === 'ok' ? 'De niveau' : (dp < 0 ? 'Avant plus bas' : 'Arrière plus bas');
+    $('sLat').textContent  = lr === 'ok' ? 'De niveau' : (dr < 0 ? 'Côté droit plus bas' : 'Côté gauche plus bas');
 
     var st = (lp === 'bad' || lr === 'bad') ? 'bad' : (lp === 'warn' || lr === 'warn') ? 'warn' : 'ok';
     var pill = $('pill');
@@ -494,21 +507,23 @@
     }
 
     // Cales : chaque roue rejoint la plus haute. Z = X·gx + Y·gy (en mètres).
+    // Un axe déjà « de niveau » ne réclame pas de cale : on n'y touche pas.
     var W = S.wb / 2, T = S.tr / 2;
-    var z = { FL:-T*m.gx + W*m.gy, FR:T*m.gx + W*m.gy, RL:-T*m.gx - W*m.gy, RR:T*m.gx - W*m.gy };
+    var gx = lr === 'ok' ? 0 : m.gx, gy = lp === 'ok' ? 0 : m.gy;
+    var z = { FL:-T*gx + W*gy, FR:T*gx + W*gy, RL:-T*gx - W*gy, RR:T*gx - W*gy };
     var top = Math.max(z.FL, z.FR, z.RL, z.RR), over = false, needs = [];
     var names = { FL:'avant gauche', FR:'avant droite', RL:'arrière gauche', RR:'arrière droite' };
     ['FL','FR','RL','RR'].forEach(function(key){
-      var cm = Math.round((top - z[key]) * 200) / 2; // au demi-centimètre
+      var cm = sticky(key, (top - z[key]) * 100, 1, 0.3); // au centimètre près
       var l = $('l' + key), t = $('t' + key);
-      if(cm < 0.5 || st === 'ok'){
+      if(cm < 1 || st === 'ok'){
         l.textContent = '0'; l.setAttribute('class', 'lbl zero'); t.setAttribute('class', 'tyre');
       } else {
         var o = cm > MAX_CALE_CM; over = over || o;
-        l.textContent = '+' + fmt(cm, cm % 1 ? 1 : 0) + ' cm';
+        l.textContent = '+' + cm + ' cm';
         l.setAttribute('class', 'lbl' + (o ? ' over' : ''));
         t.setAttribute('class', 'tyre ' + (o ? 'over' : 'need'));
-        needs.push(names[key] + ' ' + fmt(cm, cm % 1 ? 1 : 0) + ' cm');
+        needs.push(names[key] + ' ' + cm + ' cm');
       }
     });
     var adv = '';
@@ -531,7 +546,7 @@
         raw.b = 1.4 + 0.5 * Math.sin(t / 2.7);
         raw.g = 0.9 + 0.6 * Math.cos(t / 3.4);
       }
-      var a = 1 - Math.exp(-dt / 0.35);   // lissage : constante de temps 0,35 s
+      var a = 1 - Math.exp(-dt / 1.0);    // lissage : constante de temps 1 s, pour une lecture calme
       filt.b += (raw.b - filt.b) * a;
       filt.g += (raw.g - filt.g) * a;
     }
@@ -555,8 +570,8 @@
     document.querySelectorAll('#thrSeg button').forEach(function(b){ b.setAttribute('aria-pressed', String(+b.dataset.thr === S.thr)); });
     $('beepSw').setAttribute('aria-checked', String(S.beep));
     $('calState').textContent = S.cal.set
-      ? 'Correction enregistrée : ' + (S.cal.b >= 0 ? '+' : '−') + fmt(S.cal.b, 2) + '° en long, ' + (S.cal.g >= 0 ? '+' : '−') + fmt(S.cal.g, 2) + '° en travers (repère du téléphone).'
-      : "Pas encore calibré. Faites-le une fois, avec la coque que vous utilisez : c'est ce qui donne la précision au dixième de degré.";
+      ? 'Correction enregistrée : ' + (S.cal.b >= 0 ? '+' : '−') + fmt(S.cal.b, 1) + '° en long, ' + (S.cal.g >= 0 ? '+' : '−') + fmt(S.cal.g, 1) + '° en travers (repère du téléphone).'
+      : "Pas encore calibré. Faites-le une fois, avec la coque que vous utilisez : c'est ce qui rend la mesure fiable.";
   }
   $('setBtn').addEventListener('click', function(){ syncSettings(); setDlg.showModal(); });
   function numIn(el, lo, hi, def){ var v = parseFloat(String(el.value).replace(',', '.')); return (v >= lo && v <= hi) ? v : def; }
@@ -607,7 +622,7 @@
       measure(function(r){
         S.cal = { b:(m1.b + r.b) / 2, g:(m1.g + r.g) / 2, set:true };
         save(); calStage = 3;
-        $('calStep').textContent = 'Calibration enregistrée. Défaut corrigé : ' + fmt(S.cal.b, 2) + '° en long, ' + fmt(S.cal.g, 2) + '° en travers. ' +
+        $('calStep').textContent = 'Calibration enregistrée. Défaut corrigé : ' + fmt(S.cal.b, 1) + '° en long, ' + fmt(S.cal.g, 1) + '° en travers. ' +
           'Votre repère était incliné de ' + fmt((m1.b - r.b) / 2, 1) + '° et ' + fmt((m1.g - r.g) / 2, 1) + '°.';
         $('calGo').textContent = 'Terminer';
       });

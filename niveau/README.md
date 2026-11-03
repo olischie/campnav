@@ -15,7 +15,7 @@ Adresse : `https://olischie.github.io/campnav/niveau/`
 ## Mode d'emploi
 
 1. Posez le téléphone **à plat** sur le plancher, au milieu du véhicule, le haut du téléphone vers l'avant (sinon, indiquez son orientation dans Réglages).
-2. Dans **Réglages**, saisissez l'empattement (distance entre essieux) et la voie (écart entre les roues d'un essieu).
+2. Les valeurs par défaut sont celles d'un **Citroën Jumper L4 de 6,36 m** (empattement 4,035 m, voie 1,80 m). Pour un autre véhicule, saisissez dans **Réglages** son empattement (distance entre essieux) et sa voie (écart entre les roues d'un essieu).
 3. Placez les cales indiquées, avancez, vérifiez.
 
 ## Calibration

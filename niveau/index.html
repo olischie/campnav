@@ -268,14 +268,15 @@
     <div class="grid2">
       <div class="field">
         <label for="inWb">Empattement (m)</label>
-        <input id="inWb" type="number" inputmode="decimal" step="0.05" min="1" max="8">
+        <input id="inWb" type="number" inputmode="decimal" step="any" min="1" max="8">
       </div>
       <div class="field">
         <label for="inTr">Voie (m)</label>
-        <input id="inTr" type="number" inputmode="decimal" step="0.05" min="1" max="3">
+        <input id="inTr" type="number" inputmode="decimal" step="any" min="1" max="3">
       </div>
     </div>
-    <p class="note">Empattement : distance entre l'essieu avant et l'essieu arrière (fiche technique, souvent 3,5 à 4,3 m). Voie : écart entre les deux roues d'un même essieu (environ 1,8 m).</p>
+    <div class="btns"><button type="button" class="btn" id="jumperBtn">Citroën Jumper 6,36 m (L4)</button></div>
+    <p class="note">Empattement : distance entre l'essieu avant et l'essieu arrière (fiche technique ; 4,035 m pour un Jumper de 6,36 m). Voie : écart entre les deux roues d'un même essieu (environ 1,8 m).</p>
 
     <h3>Le haut du téléphone pointe vers</h3>
     <div class="seg" id="rotSeg">
@@ -331,12 +332,17 @@
   var $ = function(id){ return document.getElementById(id); };
 
   // ---------- Réglages (gardés sur ce téléphone) ----------
-  var S = { wb:3.8, tr:1.8, rot:0, thr:0.5, beep:false, cal:{b:0, g:0, set:false} };
+  // Véhicule par défaut : Citroën Jumper L4 (longueur 6,36 m), empattement 4,035 m,
+  // voie 1,81 m à l'avant et 1,79 m à l'arrière, soit 1,80 m en moyenne.
+  var JUMPER = { wb:4.035, tr:1.8 };
+  var S = { wb:JUMPER.wb, tr:JUMPER.tr, rot:0, thr:0.5, beep:false, cal:{b:0, g:0, set:false} };
   try{
     var saved = JSON.parse(localStorage.getItem('niveau.v1') || 'null');
     if(saved){
-      if(saved.wb > 0) S.wb = +saved.wb;
-      if(saved.tr > 0) S.tr = +saved.tr;
+      // 3,80 m × 1,80 m étaient les valeurs par défaut de la première version : on passe au Jumper.
+      var oldDefault = +saved.wb === 3.8 && +saved.tr === 1.8;
+      if(saved.wb > 0 && !oldDefault) S.wb = +saved.wb;
+      if(saved.tr > 0 && !oldDefault) S.tr = +saved.tr;
       if([0,90,180,270].indexOf(saved.rot) >= 0) S.rot = saved.rot;
       if(saved.thr > 0) S.thr = +saved.thr;
       S.beep = !!saved.beep;
@@ -346,6 +352,9 @@
   function save(){ try{ localStorage.setItem('niveau.v1', JSON.stringify(S)); }catch(e){} }
 
   function fmt(n, d){ return Math.abs(n).toFixed(d).replace('.', ','); }
+  // Longueur en mètres : deux décimales au moins, trois si besoin (4,035 m).
+  function fmtM(n){ return fmt(n, Math.round(n * 1000) % 10 ? 3 : 2); }
+  function isJumper(){ return Math.abs(S.wb - JUMPER.wb) < 1e-6 && Math.abs(S.tr - JUMPER.tr) < 1e-6; }
 
   // ---------- Fiole : anneaux ----------
   // Échelle en racine carrée : les petits angles, ceux qui comptent, prennent de la place.
@@ -509,7 +518,7 @@
       if(over) adv += ' Plus de ' + MAX_CALE_CM + ' cm : cherchez un emplacement moins pentu ou tournez le véhicule.';
     }
     $('advice').textContent = adv;
-    $('wheelsSub').textContent = 'Empattement ' + fmt(S.wb, 2) + ' m · voie ' + fmt(S.tr, 2) + ' m';
+    $('wheelsSub').textContent = (isJumper() ? 'Citroën Jumper 6,36 m · ' : '') + 'empattement ' + fmtM(S.wb) + ' m · voie ' + fmtM(S.tr) + ' m';
   }
 
   // ---------- Boucle ----------
@@ -556,6 +565,7 @@
   $('rotSeg').addEventListener('click', function(e){ var b = e.target.closest('button'); if(!b) return; S.rot = +b.dataset.rot; save(); syncSettings(); });
   $('thrSeg').addEventListener('click', function(e){ var b = e.target.closest('button'); if(!b) return; S.thr = +b.dataset.thr; save(); syncSettings(); drawRings(); });
   $('beepSw').addEventListener('click', function(){ S.beep = !S.beep; save(); syncSettings(); if(S.beep) beep(1320, 120); });
+  $('jumperBtn').addEventListener('click', function(){ S.wb = JUMPER.wb; S.tr = JUMPER.tr; save(); syncSettings(); });
   $('calClear').addEventListener('click', function(){ S.cal = { b:0, g:0, set:false }; save(); syncSettings(); });
 
   // ---------- Calibration par retournement ----------

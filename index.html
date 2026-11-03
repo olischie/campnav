@@ -302,11 +302,13 @@
     background:#0b1220aa;color:#fff;font-size:18px;
   }
   #navTop .navvoice.off{opacity:.4;}
+  /* Collé au bord inférieur de l'écran ; la barre d'accueil de l'iPhone est
+     comprise dans sa marge intérieure. Sa hauteur réelle (--navbot-h) place le
+     compteur, le bouton de recentrage et le véhicule juste au-dessus. */
   #navBottom{
-    position:absolute; z-index:800; left:10px; right:10px;
-    bottom:calc(12px + var(--safe-b));
-    background:var(--panel); border:1px solid var(--line); border-radius:16px;
-    display:none; align-items:center; gap:10px; padding:12px 14px;
+    position:absolute; z-index:800; left:0; right:0; bottom:0;
+    background:var(--panel); border-top:1px solid var(--line); border-radius:16px 16px 0 0;
+    display:none; align-items:center; gap:10px; padding:12px 14px calc(12px + var(--safe-b));
     box-shadow:0 -6px 24px rgba(0,0,0,.5);
   }
   body.nav #navBottom{ display:flex; }
@@ -336,7 +338,7 @@
   /* Bandeau « itinéraire plus rapide » proposé pendant la navigation */
   #altBanner{
     position:absolute; z-index:815; left:10px; right:10px;
-    bottom:calc(84px + var(--safe-b));
+    bottom:calc(var(--navbot-h, 72px) + 10px);
     background:var(--panel); border:1px solid var(--green); border-radius:16px;
     display:none; align-items:center; gap:10px; padding:12px 14px;
     box-shadow:0 8px 26px rgba(0,0,0,.55);
@@ -352,12 +354,12 @@
   #altBanner .ab-yes{ background:var(--green); color:#06240f; }
   #altBanner .ab-no{ background:var(--panel-2); color:var(--ink); border:1px solid var(--line); }
   /* Le compteur descend quand le bandeau occupe sa place */
-  body.nav.hasalt #speedo{ bottom:calc(150px + var(--safe-b)); }
+  body.nav.hasalt #speedo{ bottom:calc(var(--navbot-h, 72px) + 76px); }
 
   /* Compteur de vitesse, en bas à gauche */
   #speedo{
     position:absolute; z-index:805; left:12px;
-    bottom:calc(84px + var(--safe-b));
+    bottom:calc(var(--navbot-h, 72px) + 10px);
     display:none; align-items:flex-end; gap:8px;
   }
   body.nav #speedo{ display:flex; }
@@ -460,14 +462,14 @@
      légendé dès que l'on a déplacé, zoomé ou tourné la carte. */
   #recenter{
     position:absolute; z-index:810; right:12px;
-    bottom:calc(92px + var(--safe-b)); display:none;
+    bottom:calc(var(--navbot-h, 72px) + 18px); display:none;
     align-items:center; justify-content:center; gap:7px;
     min-width:58px; height:58px; padding:0 16px; border-radius:29px;
     background:var(--panel); color:var(--ink); border:1px solid var(--line);
     font-size:15px; font-weight:600; box-shadow:0 6px 18px rgba(0,0,0,.5);
   }
   body.nav #recenter{ display:flex; }
-  body.nav.hasalt #recenter{ bottom:calc(158px + var(--safe-b)); }
+  body.nav.hasalt #recenter{ bottom:calc(var(--navbot-h, 72px) + 84px); }
   #recenter svg{ width:26px; height:26px; flex:none; }
   #recenter .lbl{ display:none; }
   #recenter.show{ background:var(--blue-d); color:#fff; border-color:#1e40af; }
@@ -475,13 +477,13 @@
   #recenter:active{ background:var(--blue); color:#fff; }
   @media (max-width:400px){
     #recenter{ min-width:52px; height:52px; border-radius:26px; padding:0 13px;
-               bottom:calc(91px + var(--safe-b)); }
-    body.nav.hasalt #recenter{ bottom:calc(157px + var(--safe-b)); }
+               bottom:calc(var(--navbot-h, 72px) + 17px); }
+    body.nav.hasalt #recenter{ bottom:calc(var(--navbot-h, 72px) + 83px); }
   }
 
   /* ---------- Optimisations petits écrans ---------- */
   @media (max-width:400px){
-    #navBottom{ gap:6px; padding:10px 10px; }
+    #navBottom{ gap:6px; padding:10px 10px calc(10px + var(--safe-b)); }
     #navBottom .v{ font-size:16px; }
     #navBottom .k{ font-size:9px; }
     #navBottom .navquit{ padding:12px 13px; font-size:14px; }
@@ -3783,6 +3785,18 @@
     function upd(){ if(el.offsetHeight) document.body.style.setProperty('--navtop-h', el.offsetHeight+'px'); }
     if(window.ResizeObserver) new ResizeObserver(upd).observe(el);
   })();
+  // Même chose pour le panneau du bas : sa hauteur place le véhicule et les
+  // boutons juste au-dessus de lui.
+  var navBotH = 0;
+  (function(){
+    var el=$('#navBottom');
+    function upd(){
+      if(!el.offsetHeight) return;
+      navBotH = el.offsetHeight;
+      document.body.style.setProperty('--navbot-h', navBotH+'px');
+    }
+    if(window.ResizeObserver) new ResizeObserver(upd).observe(el);
+  })();
 
   $('#startNav').addEventListener('click', startNav);
   $('#navQuit').addEventListener('click', stopNav);
@@ -3795,15 +3809,19 @@
 
   // ---------- Caméra de navigation ----------
   // Carte orientée dans le sens de marche, légèrement inclinée comme sur un GPS,
-  // véhicule placé aux deux tiers bas de l'écran pour voir loin devant.
+  // véhicule placé en bas de l'écran, juste au-dessus du panneau du bas (à la
+  // hauteur du compteur), pour voir le plus loin possible devant.
   var NAV_PITCH = 45;            // inclinaison en degrés (0 = vue de dessus)
-  var NAV_PUCK  = 0.68;          // position verticale du véhicule (part de la hauteur)
+  var NAV_PUCK  = 0.68;          // position de repli, avant que le panneau soit mesuré
+  var PUCK_GAP  = 46;            // px entre le haut du panneau du bas et le centre du véhicule
   var navHeading = null;         // dernier cap GPS connu (degrés, 0 = nord)
 
   function navPadding(){
     var h = map.getContainer().clientHeight;
-    // Le centre de la zone utile tombe à NAV_PUCK de la hauteur de l'écran.
-    return { top: Math.round(h*(2*NAV_PUCK-1)), bottom:0, left:0, right:0 };
+    // Le centre de la zone utile tombe là où doit se trouver le véhicule.
+    var p = (navBotH && h) ? 1 - (navBotH + PUCK_GAP)/h : NAV_PUCK;
+    p = Math.max(0.6, Math.min(0.9, p));
+    return { top: Math.round(h*(2*p-1)), bottom:0, left:0, right:0 };
   }
 
   // Cap fourni par le GPS ; à défaut (arrêt, certains téléphones), déduit du

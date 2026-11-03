@@ -67,6 +67,8 @@ L'onglet **Options** (à droite des Favoris) réunit le **choix du fond de carte
 
 Sans aucune clé, le trajet est un **routage voiture standard** : seules les alertes de restriction fonctionnent.
 
+**Tracé posé sur la route.** TomTom calcule sur sa propre carte des routes, alors que le fond de carte vient d'OpenStreetMap : les deux diffèrent de quelques mètres, davantage dans les ronds-points et les échangeurs. L'appli garde le trajet choisi par TomTom (trafic, gabarit) mais redessine son tracé sur les routes OpenStreetMap : OSRM suit le même chemin par des points de passage pris tous les ~800 m, orientés dans le sens de marche. Ce tracé n'est retenu que s'il colle au trajet TomTom (même longueur à 2 % près, jamais plus de 35 m d'écart) ; sinon, ou si OSRM ne répond pas, le tracé TomTom reste affiché.
+
 ### TomTom (recommandé)
 
 Les dimensions du profil véhicule partent dans la requête (`travelMode=truck`, `vehicleHeight`, `vehicleWidth`, `vehicleLength`, `vehicleWeight`) avec `vehicleCommercial=false` : les **limites physiques** s'appliquent, mais pas les interdictions réservées au transport de marchandises. C'est le réglage juste pour un camping-car.

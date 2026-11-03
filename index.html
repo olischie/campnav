@@ -2003,13 +2003,85 @@
     // seconde compte. Calcul initial : on laisse un peu plus de marge.
     var ms = quiet ? 6000 : 11000;
     if(!ttKey) return fetchOrsOrOsrm(quiet, ms);
-    return tomtomFetch(null, ms).catch(function(e){
+    return tomtomFetch(null, ms).then(function(routes){
+      return alignToOsm(routes[0], quiet ? 3000 : 5000).then(function(rt){ return [rt].concat(routes.slice(1)); });
+    }, function(e){
       if(!quiet){
         if(e && e.message==='tomtom-auth') toast('Clé TomTom refusée — passage au moteur suivant.',4000);
         else toast('TomTom indisponible — passage au moteur suivant.',3000);
       }
       return fetchOrsOrOsrm(true, ms);
     });
+  }
+
+  // ---------- Tracé TomTom recalé sur les routes de la carte ----------
+  // TomTom calcule sur sa propre carte des routes ; le fond de carte vient
+  // d'OpenStreetMap. Les deux diffèrent de quelques mètres, davantage dans les
+  // ronds-points et les échangeurs : le trait bleu glissait à côté de la route.
+  // On garde le trajet choisi par TomTom (trafic, gabarit), mais on demande à
+  // OSRM, qui travaille sur OpenStreetMap, de suivre ce même chemin par des
+  // points de passage pris tous les ~800 m (100 au plus), chacun orienté dans le
+  // sens de marche pour ne pas tomber sur la chaussée d'en face. Le tracé obtenu
+  // n'est retenu que s'il colle au trajet TomTom (même longueur à 2 % près,
+  // jamais plus de 35 m d'écart) ; sinon le tracé TomTom reste affiché.
+  var ALIGN_MAX_GAP = 35;
+  function polyCum(c){
+    var cum=[0];
+    for(var i=1;i<c.length;i++) cum.push(cum[i-1]+distM(c[i-1], c[i]));
+    return cum;
+  }
+  function pointAlong(c, cum, a){
+    var lo=1, hi=cum.length-1;                 // premier sommet dont le cumul atteint `a`
+    while(lo<hi){ var mid=(lo+hi)>>1; if(cum[mid]<a) lo=mid+1; else hi=mid; }
+    var i=lo;
+    var seg=cum[i]-cum[i-1], f=seg>0 ? (a-cum[i-1])/seg : 0;
+    return [c[i-1][0]+(c[i][0]-c[i-1][0])*f, c[i-1][1]+(c[i][1]-c[i-1][1])*f];
+  }
+  // Toutes les ~100 m de `a`, le point le plus proche de `b` est à moins de `max` m ?
+  function hugs(a, b, max){
+    var xy=buildXY(b), ca=polyCum(a), L=ca[ca.length-1], last=xy.p.length-1, i=1;
+    for(var s=0; s<=L; s+=100){
+      var p=pointAlong(a, ca, s);
+      var r=nearestOn(xy, p[0], p[1], Math.max(1, i-60), Math.min(last, i+600));
+      if(!r || r.d > max) r = nearestOn(xy, p[0], p[1]);         // recherche complète en cas de doute
+      if(!r || r.d > max) return false;
+      i = r.i;
+    }
+    return true;
+  }
+  function alignToOsm(rt, ms){
+    if(!rt || rt.engine!=='tomtom' || !rt.coords || rt.coords.length<2) return Promise.resolve(rt);
+    var c=rt.coords, cum=polyCum(c), L=cum[cum.length-1];
+    if(L < 300) return Promise.resolve(rt);
+    var n=Math.min(98, Math.floor(L/800)), wp=[], k;
+    for(k=0;k<=n+1;k++){
+      var a=L*k/(n+1), p=pointAlong(c, cum, a);
+      var q0=pointAlong(c, cum, Math.max(0, a-15)), q1=pointAlong(c, cum, Math.min(L, a+15));
+      var b=Math.round((bearingTo({lat:q0[0],lng:q0[1]}, {lat:q1[0],lng:q1[1]})+360)%360);
+      wp.push({ lat:p[0], lng:p[1], b:b });
+    }
+    var url='https://router.project-osrm.org/route/v1/driving/'+
+      wp.map(function(w){ return w.lng.toFixed(6)+','+w.lat.toFixed(6); }).join(';')+
+      '?overview=full&geometries=geojson&steps=false&continue_straight=true'+
+      '&bearings='+wp.map(function(w){ return w.b+',35'; }).join(';')+
+      '&radiuses='+wp.map(function(){ return 30; }).join(';');
+    return fetchTimeout(url, null, ms).then(function(r){ return r.json(); }).then(function(d){
+      var o=d && d.routes && d.routes[0];
+      if(!o || !o.geometry || !o.geometry.coordinates || o.geometry.coordinates.length<2) return rt;
+      var oc=o.geometry.coordinates.map(function(q){ return [q[1], q[0]]; });
+      var oL=polyCum(oc); oL=oL[oL.length-1];
+      if(Math.abs(oL-L) > Math.max(150, L*0.02)) return rt;           // détour : chemin différent
+      if(!hugs(oc, c, ALIGN_MAX_GAP) || !hugs(c, oc, ALIGN_MAX_GAP)) return rt;
+      var out={}; for(var key in rt) out[key]=rt[key];
+      out.coords = oc;
+      out.aligned = true;
+      // Les ralentissements TomTom repérés par indice dans l'ancien tracé
+      // deviennent des points, reprojetés sur le nouveau tracé.
+      out.traffic = (rt.traffic||[]).map(function(t){
+        return { p0:c[Math.min(c.length-1, t.i0)], p1:c[Math.min(c.length-1, t.i1)], delay:t.delay };
+      });
+      return out;
+    }).catch(function(){ return rt; });
   }
 
   var calcSeq = 0;
@@ -4522,6 +4594,11 @@
     if(!rt || !routeXY || !routeXY.cum) return;
     var c=routeXY.cum, n=c.length-1;
     rt.trafAlong = (rt.traffic||[]).map(function(t){
+      if(t.p0){   // tracé recalé : on reprojette les extrémités du ralentissement
+        var r0=nearestOn(routeXY, t.p0[0], t.p0[1]), r1=nearestOn(routeXY, t.p1[0], t.p1[1]);
+        var a0=r0 ? alongOf(r0) : 0, a1=r1 ? alongOf(r1) : a0;
+        return { a0:Math.min(a0,a1), a1:Math.max(a0,a1), d:t.delay };
+      }
       return { a0:c[Math.min(n, Math.max(0, t.i0))], a1:c[Math.min(n, Math.max(0, t.i1))], d:t.delay };
     });
   }
@@ -4604,8 +4681,11 @@
     if(!altCand) return;
     var rt=altCand;
     hideAltBanner();
-    adoptRoute(rt, 'Nouvel itinéraire adopté.');
-    toast('🔀 Itinéraire mis à jour selon le trafic.',3000);
+    alignToOsm(rt, 3000).then(function(r){
+      if(!navActive) return;
+      adoptRoute(r, 'Nouvel itinéraire adopté.');
+      toast('🔀 Itinéraire mis à jour selon le trafic.',3000);
+    });
   });
   $('#altDismiss').addEventListener('click', function(){
     hideAltBanner();

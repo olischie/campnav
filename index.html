@@ -3813,14 +3813,14 @@
   // hauteur du compteur), pour voir le plus loin possible devant.
   var NAV_PITCH = 45;            // inclinaison en degrés (0 = vue de dessus)
   var NAV_PUCK  = 0.68;          // position de repli, avant que le panneau soit mesuré
-  var PUCK_GAP  = 46;            // px entre le haut du panneau du bas et le centre du véhicule
+  var PUCK_GAP  = 22;            // px entre le haut du panneau du bas et le centre du véhicule
   var navHeading = null;         // dernier cap GPS connu (degrés, 0 = nord)
 
   function navPadding(){
     var h = map.getContainer().clientHeight;
     // Le centre de la zone utile tombe là où doit se trouver le véhicule.
     var p = (navBotH && h) ? 1 - (navBotH + PUCK_GAP)/h : NAV_PUCK;
-    p = Math.max(0.6, Math.min(0.9, p));
+    p = Math.max(0.6, Math.min(0.95, p));
     return { top: Math.round(h*(2*p-1)), bottom:0, left:0, right:0 };
   }
 

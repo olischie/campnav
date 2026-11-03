@@ -2152,7 +2152,9 @@
 
   function engineLabel(){
     if(!lastRoute) return 'moteur standard';
-    if(lastRoute.engine==='tomtom') return lastRoute.gabarit ? 'TomTom · trafic + gabarit' : 'TomTom · trafic en direct';
+    if(lastRoute.engine==='tomtom')
+      return (lastRoute.gabarit ? 'TomTom · trafic + gabarit' : 'TomTom · trafic en direct') +
+             (lastRoute.aligned ? ' · tracé recalé sur la carte' : ' · tracé TomTom (non recalé)');
     if(lastRoute.engine==='ors')    return 'Openrouteservice · gabarit, sans trafic';
     return 'OSRM · gabarit non pris en compte';
   }

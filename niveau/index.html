@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#eef1ec" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#101614" media="(prefers-color-scheme: dark)">
+<meta name="description" content="Niveau à bulle circulaire pour mettre un camping-car de niveau : inclinaison en long et en travers, et hauteur de cale à placer sous chaque roue.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Niveau CC">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+<title>Niveau Camping-Car</title>
+<style>
+  /* Une seule colonne, l'instrument d'abord : la fiole, puis les deux angles, puis les cales. */
+  :root{
+    --bg:#eef1ec; --panel:#ffffff; --panel-2:#e3e8e1; --line:#cdd5cb;
+    --ink:#18211d; --muted:#5a6760;
+    --accent:#1d6a80; --accent-ink:#ffffff;
+    --fluid-1:#e6ef93; --fluid-2:#c3d44f; --fluid-edge:#8a9a2c;
+    --ring:rgba(40,55,20,.38); --bubble:#fbfdf1;
+    --ok:#1e8f4e; --warn:#c77d00; --bad:#cc3b30;
+    --shadow:0 1px 2px rgba(20,35,25,.08), 0 8px 24px rgba(20,35,25,.08);
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Roboto Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    color-scheme:light;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#101614; --panel:#18211e; --panel-2:#222d29; --line:#2f3c37;
+      --ink:#e7eee9; --muted:#93a29a;
+      --accent:#5fb3c9; --accent-ink:#0b1513;
+      --fluid-1:#9fb33f; --fluid-2:#6f8122; --fluid-edge:#4b5a13;
+      --ring:rgba(10,18,4,.55); --bubble:#f1f6dc;
+      --ok:#3fc77a; --warn:#f0a531; --bad:#f06a5d;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+      color-scheme:dark;
+    }
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;}
+  body{
+    background:var(--bg); color:var(--ink); font-family:var(--sans); font-size:15px; line-height:1.4;
+    min-height:100dvh;
+    padding-top:env(safe-area-inset-top,0px);
+    padding-bottom:calc(16px + env(safe-area-inset-bottom,0px));
+    padding-left:max(16px, env(safe-area-inset-left,0px));
+    padding-right:max(16px, env(safe-area-inset-right,0px));
+    -webkit-user-select:none; user-select:none;
+  }
+  main{max-width:480px; margin:0 auto; display:flex; flex-direction:column; gap:14px;}
+  [hidden]{display:none !important;}
+  button{font:inherit; color:inherit;}
+  button:focus-visible, input:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+
+  header{display:flex; align-items:center; justify-content:space-between; gap:12px; padding-top:12px;}
+  h1{font-size:19px; margin:0; letter-spacing:.01em; text-wrap:balance;}
+  h1 small{display:block; font-size:12px; font-weight:500; color:var(--muted); letter-spacing:.02em;}
+  .pill{
+    display:inline-flex; align-items:center; gap:7px; padding:7px 12px; border-radius:999px;
+    font-weight:650; font-size:14px; white-space:nowrap;
+    background:var(--panel); box-shadow:var(--shadow);
+  }
+  .pill i{width:10px; height:10px; border-radius:50%; background:var(--muted);}
+  .pill.ok i{background:var(--ok);} .pill.ok{color:var(--ok);}
+  .pill.warn i{background:var(--warn);} .pill.warn{color:var(--warn);}
+  .pill.bad i{background:var(--bad);} .pill.bad{color:var(--bad);}
+
+  .banner{
+    background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:10px 12px; font-size:14px; color:var(--muted);
+    display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap;
+  }
+  .banner b{color:var(--ink);}
+
+  /* ---------- Fiole ---------- */
+  .vial-wrap{display:grid; place-items:center; padding:6px 0 2px;}
+  .vial{
+    position:relative; width:min(84vw, 46vh, 400px); aspect-ratio:1; max-width:100%;
+    border-radius:50%;
+    background:
+      radial-gradient(circle at 50% 50%, transparent 62%, rgba(0,0,0,.10) 100%),
+      radial-gradient(circle at 38% 30%, var(--fluid-1), var(--fluid-2) 75%);
+    box-shadow:
+      inset 0 0 0 3px var(--fluid-edge),
+      inset 0 10px 30px rgba(255,255,255,.25),
+      0 0 0 10px var(--panel),
+      0 0 0 11px var(--line),
+      var(--shadow);
+    overflow:hidden; touch-action:none;
+  }
+  .vial svg{position:absolute; inset:0; width:100%; height:100%; overflow:visible;}
+  .vial .ring{fill:none; stroke:var(--ring); stroke-width:1.2;}
+  .vial .ring.target{stroke-width:2.4;}
+  .vial .cross{stroke:var(--ring); stroke-width:1;}
+  .vial .rl{fill:var(--ring); font:600 7px var(--sans);}
+  .bubble{
+    position:absolute; left:50%; top:50%; width:21%; aspect-ratio:1; border-radius:50%;
+    transform:translate(-50%,-50%);
+    background:radial-gradient(circle at 35% 30%, #ffffff 0 18%, var(--bubble) 45%, rgba(255,255,255,.55) 100%);
+    box-shadow:inset 0 -3px 8px rgba(80,100,20,.25), 0 0 0 1.5px rgba(60,75,15,.35), 0 3px 10px rgba(60,75,15,.25);
+    will-change:transform;
+  }
+  .front-mark{
+    position:absolute; left:50%; top:50%; width:0; height:0; pointer-events:none;
+  }
+  .front-mark span{
+    position:absolute; left:0; top:0; transform:translate(-50%,-50%);
+    font:700 10px var(--sans); letter-spacing:.12em; color:var(--fluid-edge);
+    background:var(--fluid-1); padding:2px 6px; border-radius:6px; white-space:nowrap;
+    box-shadow:0 0 0 1px var(--fluid-edge);
+  }
+
+  /* ---------- Lectures ---------- */
+  .reads{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+  .read{
+    background:var(--panel); border-radius:14px; padding:12px 14px; box-shadow:var(--shadow); min-width:0;
+  }
+  .read .k{font-size:11px; text-transform:uppercase; letter-spacing:.09em; color:var(--muted); font-weight:650;}
+  .read .v{font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:32px; font-weight:600; line-height:1.1; margin-top:4px;}
+  .read .v small{font-size:15px; color:var(--muted); font-weight:500; margin-left:4px;}
+  .read .s{font-size:14px; margin-top:4px; min-height:1.4em;}
+  .read.ok .v{color:var(--ok);} .read.warn .v{color:var(--warn);} .read.bad .v{color:var(--bad);}
+
+  /* ---------- Cales ---------- */
+  .card{background:var(--panel); border-radius:16px; padding:14px; box-shadow:var(--shadow);}
+  .card h2{font-size:15px; margin:0 0 2px;}
+  .card .sub{font-size:13px; color:var(--muted); margin:0;}
+  .wheels{display:grid; grid-template-columns:minmax(0,1fr); justify-items:center;}
+  .wheels svg{width:100%; max-width:330px; height:auto; display:block;}
+  .wheels .body{fill:var(--panel-2); stroke:var(--line); stroke-width:1.5;}
+  .wheels .cab{fill:var(--line);}
+  .wheels .tyre{fill:var(--muted);}
+  .wheels .tyre.need{fill:var(--accent);}
+  .wheels .tyre.over{fill:var(--bad);}
+  .wheels .lbl{font:700 17px var(--mono); fill:var(--ink); font-variant-numeric:tabular-nums;}
+  .wheels .lbl.zero{fill:var(--muted); font-weight:500;}
+  .wheels .lbl.over{fill:var(--bad);}
+  .wheels .cap{font:600 10px var(--sans); fill:var(--muted); letter-spacing:.1em;}
+  .advice{font-size:14px; margin:6px 0 0; text-wrap:pretty;}
+
+  /* ---------- Boutons ---------- */
+  .actions{display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:10px;}
+  .btn{
+    border:0; border-radius:12px; padding:13px 8px; font-weight:650; font-size:15px;
+    background:var(--panel); box-shadow:var(--shadow); cursor:pointer; min-height:48px;
+  }
+  .btn:active{transform:translateY(1px);}
+  .btn.primary{background:var(--accent); color:var(--accent-ink);}
+  .btn.on{background:var(--ink); color:var(--bg);}
+  .note{font-size:12.5px; color:var(--muted); margin:0; text-wrap:pretty;}
+
+  /* ---------- Réglages ---------- */
+  dialog{
+    border:0; border-radius:18px; padding:0; width:min(440px, calc(100vw - 24px));
+    background:var(--panel); color:var(--ink); box-shadow:0 20px 60px rgba(0,0,0,.35);
+    max-height:calc(100dvh - 24px);
+  }
+  dialog::backdrop{background:rgba(10,16,14,.5);}
+  .dlg{padding:18px; display:flex; flex-direction:column; gap:14px;}
+  .dlg h2{margin:0; font-size:18px; outline:none;}
+  .dlg h3{margin:4px 0 0; font-size:12px; text-transform:uppercase; letter-spacing:.09em; color:var(--muted);}
+  .field{display:flex; flex-direction:column; gap:5px;}
+  .field label{font-size:14px; font-weight:600;}
+  .field input{
+    font:600 17px var(--mono); padding:11px 12px; border-radius:10px; border:1px solid var(--line);
+    background:var(--bg); color:var(--ink); width:100%;
+  }
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+  .seg{display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:4px; background:var(--bg); padding:4px; border-radius:12px;}
+  .seg.three{grid-template-columns:repeat(3, minmax(0,1fr));}
+  .seg button{border:0; background:transparent; padding:10px 4px; border-radius:9px; font-weight:600; font-size:14px; cursor:pointer;}
+  .seg button[aria-pressed="true"]{background:var(--panel); box-shadow:var(--shadow); color:var(--accent);}
+  .row{display:flex; align-items:center; justify-content:space-between; gap:12px;}
+  .switch{
+    width:52px; height:31px; border-radius:999px; border:0; background:var(--line); position:relative; flex:none; cursor:pointer;
+  }
+  .switch::after{content:""; position:absolute; left:3px; top:3px; width:25px; height:25px; border-radius:50%; background:#fff; transition:left .15s;}
+  .switch[aria-checked="true"]{background:var(--ok);}
+  .switch[aria-checked="true"]::after{left:24px;}
+  .dlg .btns{display:flex; gap:10px; flex-wrap:wrap;}
+  .dlg .btns .btn{flex:1; box-shadow:none; background:var(--panel-2);}
+  .dlg .btns .btn.primary{background:var(--accent); color:var(--accent-ink);}
+  .step{font-size:15px; text-wrap:pretty;}
+  .bar{height:8px; border-radius:99px; background:var(--panel-2); overflow:hidden;}
+  .bar i{display:block; height:100%; width:0; background:var(--accent); transition:width .1s linear;}
+
+  @media (prefers-reduced-motion: reduce){ .switch::after{transition:none;} }
+  @media (max-width:360px){ .read .v{font-size:27px;} }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Niveau<small>Camping-car</small></h1>
+    <span class="pill" id="pill"><i></i><span id="pillTxt">En attente</span></span>
+  </header>
+
+  <div class="banner" id="permBanner" hidden>
+    <span>Le téléphone doit vous autoriser à lire son <b>capteur d'inclinaison</b>. En attendant, les valeurs affichées sont une démonstration.</span>
+    <button class="btn primary" id="permBtn">Autoriser</button>
+  </div>
+  <div class="banner" id="demoBanner" hidden>
+    <span id="demoTxt"><b>Aucun capteur d'inclinaison</b> sur cet appareil : valeurs de démonstration. Ouvrez la page sur votre téléphone.</span>
+  </div>
+
+  <div class="vial-wrap">
+    <div class="vial" id="vial" aria-hidden="true">
+      <svg viewBox="-100 -100 200 200" id="rings"></svg>
+      <div class="front-mark" id="frontMark"><span>AVANT</span></div>
+      <div class="bubble" id="bubble"></div>
+    </div>
+  </div>
+
+  <section class="reads" aria-live="polite">
+    <div class="read" id="readLong">
+      <div class="k">En long</div>
+      <div class="v" id="vLong">0,0°</div>
+      <div class="s" id="sLong">—</div>
+    </div>
+    <div class="read" id="readLat">
+      <div class="k">En travers</div>
+      <div class="v" id="vLat">0,0°</div>
+      <div class="s" id="sLat">—</div>
+    </div>
+  </section>
+
+  <section class="card wheels" aria-labelledby="wheelsTitle">
+    <div style="justify-self:stretch">
+      <h2 id="wheelsTitle">Cales à placer</h2>
+      <p class="sub" id="wheelsSub">Hauteur à ajouter sous chaque roue, vue de dessus</p>
+    </div>
+    <svg viewBox="0 0 300 290" id="wheelSvg" role="img" aria-label="Vue de dessus du véhicule avec la hauteur de cale par roue">
+      <text class="cap" x="150" y="14" text-anchor="middle">AVANT</text>
+      <rect class="body" x="104" y="26" width="92" height="248" rx="16"/>
+      <path class="cab" d="M112 40 Q150 28 188 40 L186 62 Q150 54 114 62 Z"/>
+      <rect class="tyre" id="tFL" x="94" y="64" width="14" height="34" rx="4"/>
+      <rect class="tyre" id="tFR" x="192" y="64" width="14" height="34" rx="4"/>
+      <rect class="tyre" id="tRL" x="94" y="206" width="14" height="34" rx="4"/>
+      <rect class="tyre" id="tRR" x="192" y="206" width="14" height="34" rx="4"/>
+      <text class="lbl" id="lFL" x="86" y="87" text-anchor="end">—</text>
+      <text class="lbl" id="lFR" x="214" y="87" text-anchor="start">—</text>
+      <text class="lbl" id="lRL" x="86" y="229" text-anchor="end">—</text>
+      <text class="lbl" id="lRR" x="214" y="229" text-anchor="start">—</text>
+      <text class="cap" x="150" y="288" text-anchor="middle">ARRIÈRE</text>
+    </svg>
+    <p class="advice" id="advice" style="justify-self:stretch"></p>
+  </section>
+
+  <div class="actions">
+    <button class="btn" id="freezeBtn" aria-pressed="false">Figer</button>
+    <button class="btn" id="calBtn">Calibrer</button>
+    <button class="btn" id="setBtn">Réglages</button>
+  </div>
+
+  <p class="note">Posez le téléphone <b>à plat</b> sur le plancher, au milieu du véhicule, <b>le haut du téléphone tourné vers l'avant</b> (ou réglez son orientation dans Réglages). Pour un réfrigérateur à absorption, restez en général sous 3° en travers et 6° en long : vérifiez la notice de votre modèle.</p>
+</main>
+
+<!-- Réglages -->
+<dialog id="setDlg">
+  <form method="dialog" class="dlg" id="setForm">
+    <h2 tabindex="-1" autofocus>Réglages</h2>
+
+    <h3>Véhicule</h3>
+    <div class="grid2">
+      <div class="field">
+        <label for="inWb">Empattement (m)</label>
+        <input id="inWb" type="number" inputmode="decimal" step="0.05" min="1" max="8">
+      </div>
+      <div class="field">
+        <label for="inTr">Voie (m)</label>
+        <input id="inTr" type="number" inputmode="decimal" step="0.05" min="1" max="3">
+      </div>
+    </div>
+    <p class="note">Empattement : distance entre l'essieu avant et l'essieu arrière (fiche technique, souvent 3,5 à 4,3 m). Voie : écart entre les deux roues d'un même essieu (environ 1,8 m).</p>
+
+    <h3>Le haut du téléphone pointe vers</h3>
+    <div class="seg" id="rotSeg">
+      <button type="button" data-rot="0">Avant</button>
+      <button type="button" data-rot="90">Droite</button>
+      <button type="button" data-rot="180">Arrière</button>
+      <button type="button" data-rot="270">Gauche</button>
+    </div>
+
+    <h3>Tolérance « de niveau »</h3>
+    <div class="seg three" id="thrSeg">
+      <button type="button" data-thr="0.3">0,3°</button>
+      <button type="button" data-thr="0.5">0,5°</button>
+      <button type="button" data-thr="1">1°</button>
+    </div>
+
+    <div class="row">
+      <div><b>Bip quand c'est de niveau</b><br><span class="note">Utile en montant sur les cales</span></div>
+      <button type="button" class="switch" id="beepSw" role="switch" aria-checked="false" aria-label="Bip quand c'est de niveau"></button>
+    </div>
+
+    <h3>Calibration</h3>
+    <p class="note" id="calState"></p>
+    <div class="btns">
+      <button type="button" class="btn" id="calClear">Effacer la calibration</button>
+    </div>
+
+    <div class="btns"><button class="btn primary" value="ok">Terminé</button></div>
+  </form>
+</dialog>
+
+<!-- Calibration en deux mesures -->
+<dialog id="calDlg">
+  <form method="dialog" class="dlg">
+    <h2 tabindex="-1" autofocus>Calibrer le téléphone</h2>
+    <p class="step" id="calStep"></p>
+    <div class="bar" id="calBar" hidden><i id="calBarFill"></i></div>
+    <div class="btns">
+      <button class="btn" value="cancel" id="calCancel">Annuler</button>
+      <button type="button" class="btn primary" id="calGo">Mesure 1</button>
+    </div>
+    <p class="note">Un téléphone n'est jamais parfaitement plat (bloc photo, coque). En mesurant deux fois au même endroit, avec un demi-tour entre les deux, l'appli calcule son défaut sans avoir besoin d'une surface déjà de niveau.</p>
+  </form>
+</dialog>
+
+<script>
+(function(){
+  'use strict';
+  var D2R = Math.PI/180, R2D = 180/Math.PI;
+  var MAX_DEG = 5;           // bord de la fiole
+  var MAX_CALE_CM = 12;      // hauteur d'une grande cale courante
+  var EDGE = 0.79;           // centre de la bulle au plus loin (la bulle mesure 21 % de la fiole)
+  var $ = function(id){ return document.getElementById(id); };
+
+  // ---------- Réglages (gardés sur ce téléphone) ----------
+  var S = { wb:3.8, tr:1.8, rot:0, thr:0.5, beep:false, cal:{b:0, g:0, set:false} };
+  try{
+    var saved = JSON.parse(localStorage.getItem('niveau.v1') || 'null');
+    if(saved){
+      if(saved.wb > 0) S.wb = +saved.wb;
+      if(saved.tr > 0) S.tr = +saved.tr;
+      if([0,90,180,270].indexOf(saved.rot) >= 0) S.rot = saved.rot;
+      if(saved.thr > 0) S.thr = +saved.thr;
+      S.beep = !!saved.beep;
+      if(saved.cal && isFinite(saved.cal.b) && isFinite(saved.cal.g)) S.cal = { b:+saved.cal.b, g:+saved.cal.g, set:!!saved.cal.set };
+    }
+  }catch(e){}
+  function save(){ try{ localStorage.setItem('niveau.v1', JSON.stringify(S)); }catch(e){} }
+
+  function fmt(n, d){ return Math.abs(n).toFixed(d).replace('.', ','); }
+
+  // ---------- Fiole : anneaux ----------
+  // Échelle en racine carrée : les petits angles, ceux qui comptent, prennent de la place.
+  function radiusFor(deg){ return Math.sqrt(Math.min(Math.abs(deg), MAX_DEG) / MAX_DEG); }
+  function drawRings(){
+    var svg = $('rings'), ns = 'http://www.w3.org/2000/svg', html = '';
+    [S.thr, 1, 2, 3].filter(function(v, i, a){ return a.indexOf(v) === i; }).forEach(function(d){
+      var r = radiusFor(d) * 100 * EDGE;
+      html += '<circle class="ring' + (d === S.thr ? ' target' : '') + '" r="' + r.toFixed(2) + '"/>';
+      // La tolérance est étiquetée en bas à gauche, les autres en haut à droite : pas de chevauchement.
+      var lx = d === S.thr ? -(r * 0.7071 + 2) : r * 0.7071 + 2, ly = d === S.thr ? r * 0.7071 + 8 : -r * 0.7071 - 2;
+      html += '<text class="rl" text-anchor="' + (d === S.thr ? 'end' : 'start') + '" x="' + lx.toFixed(1) + '" y="' + ly.toFixed(1) + '">' + fmt(d, d % 1 ? 1 : 0) + '°</text>';
+    });
+    html += '<line class="cross" x1="-100" y1="0" x2="100" y2="0"/><line class="cross" x1="0" y1="-100" x2="0" y2="100"/>';
+    svg.innerHTML = html;
+  }
+
+  // ---------- Capteur ----------
+  var raw = { b:0, g:0 }, filt = { b:0, g:0 }, have = false, demo = false, frozen = false;
+  var sampler = null; // collecte pendant une mesure de calibration
+
+  function onOri(e){
+    if(e.beta == null || e.gamma == null) return;
+    if(!have){ have = true; demo = false; $('demoBanner').hidden = true; $('permBanner').hidden = true; filt.b = e.beta; filt.g = e.gamma; }
+    raw.b = e.beta; raw.g = e.gamma;
+    if(sampler){ sampler.b += e.beta; sampler.g += e.gamma; sampler.n++; }
+  }
+  function listen(){
+    window.addEventListener('deviceorientation', onOri);
+    setTimeout(function(){
+      if(!have){
+        demo = true;
+        $('demoTxt').innerHTML = window.isSecureContext
+          ? "<b>Aucun capteur d'inclinaison</b> sur cet appareil : valeurs de démonstration. Ouvrez la page sur votre téléphone."
+          : "<b>Capteur inaccessible</b> : la page doit être ouverte en HTTPS. Valeurs de démonstration.";
+        $('demoBanner').hidden = false;
+      }
+    }, 2000);
+  }
+  // On écoute toujours : Android envoie les mesures sans rien demander.
+  // L'iPhone n'en envoie qu'après autorisation, donnée par un appui : le bandeau
+  // reste affiché tant qu'aucune mesure n'arrive.
+  var needsPerm = typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function';
+  if(typeof DeviceOrientationEvent === 'undefined'){
+    demo = true; $('demoBanner').hidden = false;
+  } else if(needsPerm){
+    demo = true;
+    window.addEventListener('deviceorientation', onOri);
+    setTimeout(function(){ if(!have) $('permBanner').hidden = false; }, 600);
+    $('permBtn').addEventListener('click', function(){
+      DeviceOrientationEvent.requestPermission().then(function(r){
+        if(r === 'granted'){ $('permBanner').hidden = true; listen(); }
+        else { $('permBanner').querySelector('span').innerHTML = "Accès au capteur refusé. Fermez puis rouvrez l'appli pour qu'il soit redemandé."; }
+      }).catch(function(){ listen(); });
+    });
+  } else {
+    listen();
+  }
+
+  // ---------- Écran allumé ----------
+  var lock = null;
+  function wake(){
+    if(!('wakeLock' in navigator) || lock || document.visibilityState !== 'visible') return;
+    navigator.wakeLock.request('screen').then(function(l){
+      lock = l; l.addEventListener('release', function(){ lock = null; });
+    }).catch(function(){});
+  }
+  document.addEventListener('visibilitychange', wake);
+  document.addEventListener('click', wake);
+  wake();
+  try{ if(screen.orientation && screen.orientation.lock) screen.orientation.lock('portrait').catch(function(){}); }catch(e){}
+
+  // ---------- Bip ----------
+  var actx = null;
+  function beep(f, ms){
+    if(!S.beep) return;
+    try{
+      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      var o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
+      o.frequency.value = f; o.type = 'sine';
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.35, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + ms / 1000);
+      o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + ms / 1000 + 0.02);
+    }catch(e){}
+  }
+
+  // ---------- Calcul ----------
+  function screenAngle(){
+    var a = (screen.orientation && typeof screen.orientation.angle === 'number') ? screen.orientation.angle
+          : (typeof window.orientation === 'number' ? window.orientation : 0);
+    return ((a % 360) + 360) % 360;
+  }
+  function rotCCW(v, deg){ var r = deg * D2R, c = Math.cos(r), s = Math.sin(r); return [v[0]*c - v[1]*s, v[0]*s + v[1]*c]; }
+
+  function compute(){
+    var b = filt.b - S.cal.b, g = filt.g - S.cal.g;
+    // Pente (montée) dans le repère du téléphone : x vers la droite, y vers le haut de l'écran.
+    // beta > 0 : le haut du téléphone est relevé ; gamma > 0 : le bord droit est abaissé.
+    var sp = [-Math.tan(g * D2R), Math.tan(b * D2R)];
+    // Repère du véhicule : X vers la droite, Y vers l'avant.
+    var r = S.rot * D2R;
+    var xd = [Math.cos(r), -Math.sin(r)], yd = [Math.sin(r), Math.cos(r)];
+    var gx = sp[0]*xd[0] + sp[1]*yd[0], gy = sp[0]*xd[1] + sp[1]*yd[1];
+    return { sp:sp, gx:gx, gy:gy, pitch:Math.atan(gy) * R2D, roll:Math.atan(gx) * R2D };
+  }
+
+  function level(deg){ var a = Math.abs(deg); return a <= S.thr ? 'ok' : a <= S.thr * 3 ? 'warn' : 'bad'; }
+
+  var lastState = '';
+  function render(m){
+    var vial = $('vial'), R = vial.clientWidth / 2;
+    // Bulle : elle monte du côté haut. On tient compte d'un écran passé en paysage.
+    var v = rotCCW(m.sp, screenAngle());
+    var mag = Math.hypot(v[0], v[1]), tilt = Math.atan(mag) * R2D;
+    var k = mag > 0 ? radiusFor(tilt) * R * EDGE / mag : 0;
+    $('bubble').style.transform = 'translate(calc(-50% + ' + (v[0]*k).toFixed(1) + 'px), calc(-50% + ' + (-v[1]*k).toFixed(1) + 'px))';
+
+    // Repère AVANT sur le bord de la fiole
+    var r = S.rot * D2R, f = rotCCW([-Math.sin(r), Math.cos(r)], screenAngle());
+    $('frontMark').firstChild.style.transform = 'translate(calc(-50% + ' + (f[0] * R * 0.90).toFixed(1) + 'px), calc(-50% + ' + (-f[1] * R * 0.90).toFixed(1) + 'px))';
+
+    // Lectures
+    var lp = level(m.pitch), lr = level(m.roll);
+    $('readLong').className = 'read ' + lp; $('readLat').className = 'read ' + lr;
+    $('vLong').innerHTML = fmt(m.pitch, 1) + '°<small>' + fmt(Math.abs(m.gy) * 100, 1) + ' %</small>';
+    $('vLat').innerHTML  = fmt(m.roll, 1)  + '°<small>' + fmt(Math.abs(m.gx) * 100, 1) + ' %</small>';
+    $('sLong').textContent = lp === 'ok' ? 'De niveau' : (m.pitch < 0 ? 'Avant plus bas' : 'Arrière plus bas');
+    $('sLat').textContent  = lr === 'ok' ? 'De niveau' : (m.roll  < 0 ? 'Côté droit plus bas' : 'Côté gauche plus bas');
+
+    var st = (lp === 'bad' || lr === 'bad') ? 'bad' : (lp === 'warn' || lr === 'warn') ? 'warn' : 'ok';
+    var pill = $('pill');
+    pill.className = 'pill ' + ((demo && !have) ? '' : st);
+    $('pillTxt').textContent = (demo && !have) ? 'Démo' : frozen ? 'Figé' : st === 'ok' ? 'De niveau' : st === 'warn' ? 'Presque' : 'À caler';
+    if(st !== lastState){
+      if(st === 'ok' && lastState) { beep(1320, 140); setTimeout(function(){ beep(1760, 160); }, 160); }
+      lastState = st;
+    }
+
+    // Cales : chaque roue rejoint la plus haute. Z = X·gx + Y·gy (en mètres).
+    var W = S.wb / 2, T = S.tr / 2;
+    var z = { FL:-T*m.gx + W*m.gy, FR:T*m.gx + W*m.gy, RL:-T*m.gx - W*m.gy, RR:T*m.gx - W*m.gy };
+    var top = Math.max(z.FL, z.FR, z.RL, z.RR), over = false, needs = [];
+    var names = { FL:'avant gauche', FR:'avant droite', RL:'arrière gauche', RR:'arrière droite' };
+    ['FL','FR','RL','RR'].forEach(function(key){
+      var cm = Math.round((top - z[key]) * 200) / 2; // au demi-centimètre
+      var l = $('l' + key), t = $('t' + key);
+      if(cm < 0.5 || st === 'ok'){
+        l.textContent = '0'; l.setAttribute('class', 'lbl zero'); t.setAttribute('class', 'tyre');
+      } else {
+        var o = cm > MAX_CALE_CM; over = over || o;
+        l.textContent = '+' + fmt(cm, cm % 1 ? 1 : 0) + ' cm';
+        l.setAttribute('class', 'lbl' + (o ? ' over' : ''));
+        t.setAttribute('class', 'tyre ' + (o ? 'over' : 'need'));
+        needs.push(names[key] + ' ' + fmt(cm, cm % 1 ? 1 : 0) + ' cm');
+      }
+    });
+    var adv = '';
+    if(st === 'ok') adv = 'Le véhicule est de niveau, pas besoin de cales.';
+    else {
+      adv = 'Calez : ' + needs.join(', ') + '.';
+      if(over) adv += ' Plus de ' + MAX_CALE_CM + ' cm : cherchez un emplacement moins pentu ou tournez le véhicule.';
+    }
+    $('advice').textContent = adv;
+    $('wheelsSub').textContent = 'Empattement ' + fmt(S.wb, 2) + ' m · voie ' + fmt(S.tr, 2) + ' m';
+  }
+
+  // ---------- Boucle ----------
+  var last = performance.now(), lastRender = 0;
+  function loop(now){
+    var dt = Math.min(0.2, (now - last) / 1000); last = now;
+    if(!frozen){
+      if(demo && !have){
+        var t = now / 1000;
+        raw.b = 1.4 + 0.5 * Math.sin(t / 2.7);
+        raw.g = 0.9 + 0.6 * Math.cos(t / 3.4);
+      }
+      var a = 1 - Math.exp(-dt / 0.35);   // lissage : constante de temps 0,35 s
+      filt.b += (raw.b - filt.b) * a;
+      filt.g += (raw.g - filt.g) * a;
+    }
+    if(now - lastRender > 33){ lastRender = now; render(compute()); }
+    requestAnimationFrame(loop);
+  }
+
+  // ---------- Figer ----------
+  $('freezeBtn').addEventListener('click', function(){
+    frozen = !frozen;
+    this.textContent = frozen ? 'Reprendre' : 'Figer';
+    this.setAttribute('aria-pressed', String(frozen));
+    this.classList.toggle('on', frozen);
+  });
+
+  // ---------- Réglages ----------
+  var setDlg = $('setDlg');
+  function syncSettings(){
+    $('inWb').value = S.wb; $('inTr').value = S.tr;
+    document.querySelectorAll('#rotSeg button').forEach(function(b){ b.setAttribute('aria-pressed', String(+b.dataset.rot === S.rot)); });
+    document.querySelectorAll('#thrSeg button').forEach(function(b){ b.setAttribute('aria-pressed', String(+b.dataset.thr === S.thr)); });
+    $('beepSw').setAttribute('aria-checked', String(S.beep));
+    $('calState').textContent = S.cal.set
+      ? 'Correction enregistrée : ' + (S.cal.b >= 0 ? '+' : '−') + fmt(S.cal.b, 2) + '° en long, ' + (S.cal.g >= 0 ? '+' : '−') + fmt(S.cal.g, 2) + '° en travers (repère du téléphone).'
+      : "Pas encore calibré. Faites-le une fois, avec la coque que vous utilisez : c'est ce qui donne la précision au dixième de degré.";
+  }
+  $('setBtn').addEventListener('click', function(){ syncSettings(); setDlg.showModal(); });
+  function numIn(el, lo, hi, def){ var v = parseFloat(String(el.value).replace(',', '.')); return (v >= lo && v <= hi) ? v : def; }
+  $('inWb').addEventListener('change', function(){ S.wb = numIn(this, 1, 8, S.wb); this.value = S.wb; save(); });
+  $('inTr').addEventListener('change', function(){ S.tr = numIn(this, 1, 3, S.tr); this.value = S.tr; save(); });
+  $('rotSeg').addEventListener('click', function(e){ var b = e.target.closest('button'); if(!b) return; S.rot = +b.dataset.rot; save(); syncSettings(); });
+  $('thrSeg').addEventListener('click', function(e){ var b = e.target.closest('button'); if(!b) return; S.thr = +b.dataset.thr; save(); syncSettings(); drawRings(); });
+  $('beepSw').addEventListener('click', function(){ S.beep = !S.beep; save(); syncSettings(); if(S.beep) beep(1320, 120); });
+  $('calClear').addEventListener('click', function(){ S.cal = { b:0, g:0, set:false }; save(); syncSettings(); });
+
+  // ---------- Calibration par retournement ----------
+  // Lecture 1 = pente + défaut ; après un demi-tour, lecture 2 = −pente + défaut.
+  // Le défaut du téléphone est donc la moyenne des deux lectures.
+  var calDlg = $('calDlg'), calStage = 0, m1 = null;
+  var STEP1 = "1. Posez le téléphone à plat, calé contre un repère (bord d'une table, d'un plan de travail, une règle). Ne le touchez plus pendant la mesure.";
+  var STEP2 = "2. Faites-lui faire un demi-tour sur place, à plat, et calez-le contre le même repère, au même endroit. Puis lancez la mesure 2.";
+  function openCal(){
+    calStage = 1; m1 = null;
+    $('calStep').textContent = STEP1; $('calGo').textContent = 'Mesure 1'; $('calGo').disabled = false;
+    $('calBar').hidden = true;
+    if(setDlg.open) setDlg.close();
+    calDlg.showModal();
+  }
+  $('calBtn').addEventListener('click', openCal);
+  function measure(done){
+    if(!have){ $('calStep').textContent = "Aucun capteur d'inclinaison : la calibration se fait sur le téléphone."; return; }
+    $('calGo').disabled = true; $('calBar').hidden = false;
+    var start = performance.now(), dur = 2000;
+    // 0,4 s pour que la main s'éloigne, puis 2 s de mesure.
+    setTimeout(function(){
+      sampler = { b:0, g:0, n:0 };
+      (function tick(){
+        var p = Math.min(1, (performance.now() - start - 400) / dur);
+        $('calBarFill').style.width = (p * 100).toFixed(0) + '%';
+        if(p < 1) return requestAnimationFrame(tick);
+        var s = sampler; sampler = null;
+        $('calGo').disabled = false; $('calBar').hidden = true; $('calBarFill').style.width = '0';
+        if(s.n < 5){ $('calStep').textContent = 'Trop peu de mesures reçues, recommencez.'; return; }
+        done({ b:s.b / s.n, g:s.g / s.n });
+      })();
+    }, 400);
+  }
+  $('calGo').addEventListener('click', function(){
+    if(calStage === 1){
+      measure(function(r){ m1 = r; calStage = 2; $('calStep').textContent = STEP2; $('calGo').textContent = 'Mesure 2'; });
+    } else if(calStage === 2){
+      measure(function(r){
+        S.cal = { b:(m1.b + r.b) / 2, g:(m1.g + r.g) / 2, set:true };
+        save(); calStage = 3;
+        $('calStep').textContent = 'Calibration enregistrée. Défaut corrigé : ' + fmt(S.cal.b, 2) + '° en long, ' + fmt(S.cal.g, 2) + '° en travers. ' +
+          'Votre repère était incliné de ' + fmt((m1.b - r.b) / 2, 1) + '° et ' + fmt((m1.g - r.g) / 2, 1) + '°.';
+        $('calGo').textContent = 'Terminer';
+      });
+    } else {
+      calDlg.close();
+    }
+  });
+  calDlg.addEventListener('close', function(){ sampler = null; });
+
+  window.addEventListener('resize', function(){ lastRender = 0; });
+  drawRings();
+  requestAnimationFrame(loop);
+
+  if('serviceWorker' in navigator && location.protocol === 'https:'){
+    navigator.serviceWorker.register('sw.js').catch(function(){});
+  }
+})();
+</script>
+</body>
+</html>

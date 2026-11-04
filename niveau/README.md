@@ -28,8 +28,8 @@ Un téléphone n'est jamais parfaitement plat (bloc photo, coque). **Calibrer** 
 
 ## Installation
 
-- **iPhone (Safari)** : Partager → Sur l'écran d'accueil. Au premier lancement, touchez **Autoriser** pour donner accès au capteur d'inclinaison.
-- **Android (Chrome)** : menu ⋮ → Installer l'application.
+- **iPhone (Safari)** : Partager → Sur l'écran d'accueil. Au lancement, touchez l'écran une fois : l'iPhone demande alors l'accès au capteur d'inclinaison (Safari impose ce premier appui, aucune page ne peut s'en passer). Si l'accès est déjà accordé, la mesure démarre seule.
+- **Android (Chrome)** : menu ⋮ → Installer l'application. Le capteur est accessible d'office, sans rien autoriser.
 
 La page doit être servie en **HTTPS** (c'est le cas avec GitHub Pages) : sans cela, le navigateur refuse l'accès au capteur.
 

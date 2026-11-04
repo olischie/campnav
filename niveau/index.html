@@ -200,8 +200,8 @@
   </header>
 
   <div class="banner" id="permBanner" hidden>
-    <span>Le téléphone doit vous autoriser à lire son <b>capteur d'inclinaison</b>. En attendant, les valeurs affichées sont une démonstration.</span>
-    <button class="btn primary" id="permBtn">Autoriser</button>
+    <span id="permTxt"><b>Touchez l'écran</b> pour activer le capteur d'inclinaison : l'iPhone exige ce premier appui. En attendant, les valeurs affichées sont une démonstration.</span>
+    <button class="btn primary" id="permBtn">Activer</button>
   </div>
   <div class="banner" id="demoBanner" hidden>
     <span id="demoTxt"><b>Aucun capteur d'inclinaison</b> sur cet appareil : valeurs de démonstration. Ouvrez la page sur votre téléphone.</span>
@@ -396,21 +396,42 @@
     }, 2000);
   }
   // On écoute toujours : Android envoie les mesures sans rien demander.
-  // L'iPhone n'en envoie qu'après autorisation, donnée par un appui : le bandeau
-  // reste affiché tant qu'aucune mesure n'arrive.
+  // L'iPhone exige une autorisation, et Safari n'accepte de la demander que
+  // pendant un appui : aucune page ne peut s'en passer. L'appli fait donc au mieux :
+  //  1. une demande silencieuse au démarrage, qui suffit si l'accès est déjà accordé ;
+  //  2. sinon, le premier appui n'importe où sur l'écran déclenche la demande.
   var needsPerm = typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function';
   if(typeof DeviceOrientationEvent === 'undefined'){
     demo = true; $('demoBanner').hidden = false;
   } else if(needsPerm){
     demo = true;
     window.addEventListener('deviceorientation', onOri);
-    setTimeout(function(){ if(!have) $('permBanner').hidden = false; }, 600);
-    $('permBtn').addEventListener('click', function(){
+    var asking = false, refused = false;
+    var askOnTap = function(){
+      if(have || asking || refused) return;
+      asking = true;
       DeviceOrientationEvent.requestPermission().then(function(r){
-        if(r === 'granted'){ $('permBanner').hidden = true; listen(); }
-        else { $('permBanner').querySelector('span').innerHTML = "Accès au capteur refusé. Fermez puis rouvrez l'appli pour qu'il soit redemandé."; }
-      }).catch(function(){ listen(); });
-    });
+        asking = false;
+        if(r === 'granted'){ $('permBanner').hidden = true; stopTap(); }
+        else {
+          refused = true; stopTap();
+          $('permBanner').hidden = false; $('permBtn').hidden = true;
+          $('permTxt').innerHTML = "<b>Accès au capteur refusé.</b> Fermez complètement l'appli (ou l'onglet Safari) puis rouvrez-la : l'iPhone reposera la question.";
+        }
+      }).catch(function(){ asking = false; });
+    };
+    var stopTap = function(){
+      document.removeEventListener('touchend', askOnTap, true);
+      document.removeEventListener('click', askOnTap, true);
+    };
+    document.addEventListener('touchend', askOnTap, true);
+    document.addEventListener('click', askOnTap, true);
+    try{
+      DeviceOrientationEvent.requestPermission().then(function(r){
+        if(r === 'granted'){ $('permBanner').hidden = true; stopTap(); }
+      }).catch(function(){});
+    }catch(e){}
+    setTimeout(function(){ if(!have && !refused) $('permBanner').hidden = false; }, 800);
   } else {
     listen();
   }

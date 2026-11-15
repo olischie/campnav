@@ -57,8 +57,10 @@ self.addEventListener('install', (e) => {
 
 self.addEventListener('activate', (e) => {
   e.waitUntil(
+    // Ne purge que ses propres anciennes versions (« cc-… ») : les caches du
+    // site sont communs à toutes ses pages, et l'outil Niveau a les siens.
     caches.keys().then((keys) => Promise.all(
-      keys.filter((k) => k !== SHELL_CACHE && k !== TILE_CACHE).map((k) => caches.delete(k))
+      keys.filter((k) => k.startsWith('cc-') && k !== SHELL_CACHE && k !== TILE_CACHE).map((k) => caches.delete(k))
     )).then(() => self.clients.claim())
   );
 });
